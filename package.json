@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
+    "@supabase/supabase-js": "^2.108.2",
     "@whiskeysockets/baileys": "^6.7.5",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",

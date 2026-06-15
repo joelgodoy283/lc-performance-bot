@@ -12,6 +12,7 @@ const qrcode = require('qrcode');
 const path = require('path');
 const { saveMessage, isPaused, pauseContact, isBlocked } = require('../database/db');
 const { processMessage } = require('../ai/openrouter');
+const { logMessage } = require('../supabase/client');
 
 const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, '..', 'sessions');
 
@@ -132,6 +133,7 @@ async function startWhatsApp() {
 
       // Guardar en DB y emitir al dashboard
       saveMessage(phone, 'incoming', text);
+      logMessage(phone, 'incoming', text); // historial de largo plazo (Supabase)
       global.io?.emit('chat:new_message', { phone, direction: 'incoming', content: text, timestamp: new Date().toISOString() });
 
       // Verificar si es un trigger de handoff humano
@@ -179,6 +181,7 @@ async function sendMessage(phone, text) {
   try {
     await sock.sendMessage(phone, { text });
     saveMessage(phone, 'outgoing', text);
+    logMessage(phone, 'outgoing', text); // historial de largo plazo (Supabase)
     global.io?.emit('chat:new_message', {
       phone,
       direction: 'outgoing',

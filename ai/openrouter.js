@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { getConfig, getServices, getConversationState, saveConversationState } = require('../database/db');
 const { TOOL_DEFINITIONS, executeTool } = require('./tools');
+const { isEnabled: supabaseEnabled, getClientProfile, upsertClientProfile } = require('../supabase/client');
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const MAX_HISTORY_MESSAGES = 20; // Mantener últimos N mensajes para no superar el contexto
@@ -108,6 +109,70 @@ ${lines.join('\n')}`;
 }
 
 /**
+ * Da formato al perfil del cliente para inyectarlo en el system prompt.
+ */
+function formatClientProfile(p) {
+  const parts = [];
+  if (p.nombre)          parts.push(`Nombre: ${p.nombre}`);
+  if (p.vehiculos)       parts.push(`Vehículo(s): ${p.vehiculos}`);
+  if (p.estilo)          parts.push(`Estilo de habla: ${p.estilo}`);
+  if (p.ultimo_servicio) parts.push(`Último servicio: ${p.ultimo_servicio}`);
+  if (p.resumen)         parts.push(`Resumen: ${p.resumen}`);
+  return parts.join('\n');
+}
+
+/**
+ * Parseo tolerante de JSON (quita fences ```json y texto alrededor).
+ */
+function parseJsonLoose(raw) {
+  if (!raw) return null;
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
+/**
+ * Actualiza (con IA) el perfil del cliente en Supabase a partir de la
+ * conversación. Throttle: en el primer mensaje y luego cada 4, para no
+ * gastar tokens de más. Fire-and-forget (no bloquea la respuesta).
+ */
+async function maybeUpdateClientProfile(phone, history) {
+  if (!supabaseEnabled()) return;
+  try {
+    const profile = await getClientProfile(phone);
+    const userMsgs = history.filter((m) => m.role === 'user').length;
+    if (profile && userMsgs % 4 !== 0) return; // throttle
+
+    const transcript = history
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .map((m) => `${m.role === 'user' ? 'Cliente' : 'Bot'}: ${m.content}`)
+      .join('\n')
+      .slice(-4000);
+
+    const sys =
+      'Analizá la conversación y devolvé SOLO un JSON válido (sin texto extra) con las claves: ' +
+      'nombre (string|null), vehiculos (string|null), estilo (cómo habla el cliente: formal/informal, ' +
+      'usa modismos, mensajes largos/cortos, etc.), resumen (1-2 frases sobre quién es y qué necesita), ' +
+      'ultimo_servicio (string|null). Si un dato no aparece, devolvé null o mantené lo ya conocido.';
+    const user = (profile ? `Perfil actual: ${JSON.stringify(profile)}\n\n` : '') + `Conversación:\n${transcript}`;
+
+    const raw = await simpleCompletion(sys, user);
+    const json = parseJsonLoose(raw);
+    if (!json) return;
+
+    await upsertClientProfile(phone, {
+      nombre:          json.nombre          ?? profile?.nombre          ?? null,
+      vehiculos:       json.vehiculos       ?? profile?.vehiculos       ?? null,
+      estilo:          json.estilo          ?? profile?.estilo          ?? null,
+      resumen:         json.resumen         ?? profile?.resumen         ?? null,
+      ultimo_servicio: json.ultimo_servicio ?? profile?.ultimo_servicio ?? null,
+    });
+  } catch (err) {
+    console.error('[AI] Error actualizando perfil del cliente:', err.message);
+  }
+}
+
+/**
  * Procesa un mensaje entrante del cliente y retorna la respuesta del bot.
  * Gestiona el historial de conversación desde la base de datos.
  */
@@ -119,9 +184,18 @@ async function processMessage(phone, userText) {
   const userMessage = { role: 'user', content: userText };
 
   // Si es la primera interacción, agregar contexto al prompt del sistema
-  const contextualPrompt = state.is_new
+  let contextualPrompt = state.is_new
     ? systemPrompt + '\n\nCONTEXTO: Este es el PRIMER mensaje de este cliente. Debes presentarte como asistente virtual con IA.'
     : systemPrompt;
+
+  // Memoria de largo plazo: inyectar el perfil del cliente si existe
+  const profile = await getClientProfile(phone);
+  if (profile) {
+    contextualPrompt +=
+      '\n\nPERFIL DEL CLIENTE (memoria de interacciones previas; usalo para personalizar el trato, ' +
+      'saludarlo por su nombre, recordar su vehículo y ADAPTAR TU TONO al de él):\n' +
+      formatClientProfile(profile);
+  }
 
   // Agregar mensaje al historial
   const history = [...state.history, userMessage];
@@ -144,6 +218,9 @@ async function processMessage(phone, userText) {
   ];
 
   saveConversationState(phone, updatedHistory, state.step, state.car_info, false);
+
+  // Actualizar el perfil del cliente en segundo plano (no bloquea la respuesta)
+  maybeUpdateClientProfile(phone, updatedHistory).catch(() => {});
 
   return botReply;
 }
