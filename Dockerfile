@@ -1,5 +1,6 @@
 # LC Performance Bot — imagen Node
-FROM node:20-alpine
+# Node 22: incluye WebSocket global (lo necesita @supabase/supabase-js)
+FROM node:22-alpine
 
 WORKDIR /app
 
