@@ -13,7 +13,7 @@ const path = require('path');
 const { saveMessage, isPaused, pauseContact, isBlocked } = require('../database/db');
 const { processMessage } = require('../ai/openrouter');
 
-const SESSION_DIR = path.join(__dirname, '..', 'sessions');
+const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, '..', 'sessions');
 
 // Frases que activan el handoff a humano
 const HUMAN_TRIGGERS = [

@@ -8,7 +8,7 @@ const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '..', 'lc_performance.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'lc_performance.db');
 
 let db    = null;  // instancia sql.js
 let SQL   = null;  // módulo sql.js cargado

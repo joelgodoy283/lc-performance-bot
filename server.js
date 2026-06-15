@@ -27,7 +27,7 @@ const io = new Server(server, {
 global.io = io;
 
 // ─── Asegurar que exista el directorio de sesiones ─────────────────────────
-const sessionsDir = path.join(__dirname, 'sessions');
+const sessionsDir = process.env.SESSION_DIR || path.join(__dirname, 'sessions');
 if (!fs.existsSync(sessionsDir)) fs.mkdirSync(sessionsDir, { recursive: true });
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
