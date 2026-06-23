@@ -3,8 +3,8 @@
 ════════════════════════════════════════════════════ */
 
 :root {
-  --primary:      #00a8e8;
-  --primary-dark: #0086ba;
+  --primary:      #e8b923;
+  --primary-dark: #b8860b;
   --success:      #22c55e;
   --warning:      #f59e0b;
   --danger:       #ef4444;
@@ -24,7 +24,7 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background:
-    radial-gradient(1200px 600px at 100% -10%, rgba(0,168,232,.08), transparent 60%),
+    radial-gradient(1200px 600px at 100% -10%, rgba(232,185,35,.08), transparent 60%),
     var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -44,7 +44,7 @@ body {
   justify-content: center;
   min-height: 100vh;
   background:
-    radial-gradient(900px 500px at 50% -20%, rgba(0,168,232,.12), transparent 60%),
+    radial-gradient(900px 500px at 50% -20%, rgba(232,185,35,.12), transparent 60%),
     linear-gradient(135deg, #07090d 0%, #12161f 100%);
 }
 
@@ -65,9 +65,11 @@ body {
 
 .login-logo .logo-icon { font-size: 48px; margin-bottom: 12px; }
 .login-logo .logo-img {
-  width: 88px; height: 88px;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
   margin-bottom: 16px;
-  filter: drop-shadow(0 6px 20px rgba(0,168,232,.35));
+  border-radius: 10px;
 }
 .login-logo h1 {
   font-size: 24px; font-weight: 800; color: var(--text);
@@ -101,9 +103,10 @@ body {
 
 .sidebar-logo { font-size: 28px; }
 .sidebar-logo-img {
-  width: 40px; height: 40px;
-  filter: drop-shadow(0 2px 8px rgba(0,168,232,.4));
-  flex-shrink: 0;
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
 }
 .sidebar-header h2 { font-size: 15px; font-weight: 800; line-height: 1.2; letter-spacing: .5px; }
 .sidebar-header small { color: var(--text-muted); font-size: 12px; }
@@ -130,7 +133,7 @@ body {
 }
 
 .nav-item:hover    { background: rgba(255,255,255,.05); color: var(--text); }
-.nav-item.active   { background: rgba(0,168,232,.15); color: var(--primary); box-shadow: inset 3px 0 0 var(--primary); }
+.nav-item.active   { background: rgba(232,185,35,.15); color: var(--primary); box-shadow: inset 3px 0 0 var(--primary); }
 .nav-item .nav-icon { font-size: 18px; }
 
 .sidebar-footer {
@@ -303,7 +306,7 @@ body {
 }
 
 .chat-list-item:hover    { background: rgba(255,255,255,.04); }
-.chat-list-item.active   { background: rgba(0,168,232,.12); }
+.chat-list-item.active   { background: rgba(232,185,35,.12); }
 .chat-list-item.paused   { opacity: .65; }
 
 .chat-avatar {
