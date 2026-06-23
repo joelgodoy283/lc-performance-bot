@@ -2,7 +2,34 @@
    LC Performance Dashboard — Frontend Logic
 ════════════════════════════════════════════════════ */
 
-const socket = io();
+const socket = io({
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+});
+
+// Al (re)conectar, refrescar la vista activa para no quedar con datos viejos
+// o con el "Cargando..." colgado si el primer intento falló.
+socket.on('connect', () => {
+  const active = document.querySelector('.tab-content.active');
+  if (active) refreshView(active.id);
+});
+
+socket.io.on('reconnect', () => {
+  const active = document.querySelector('.tab-content.active');
+  if (active) refreshView(active.id);
+});
+
+function refreshView(tabId) {
+  if (tabId === 'tab-chats') {
+    loadChatList();
+    if (currentPhone) openChat(currentPhone);
+  }
+  if (tabId === 'tab-calendar')  loadCalendar();
+  if (tabId === 'tab-instagram') loadInstagramStatus();
+}
 
 // ─── Estado local ───────────────────────────────────
 let currentPhone    = null;
@@ -360,10 +387,18 @@ document.querySelector('[data-tab="tab-chats"]')?.addEventListener('click', () =
 // ─── PROMPT / IA ─────────────────────────────────────
 async function loadPrompt() {
   const res = await apiFetch('/api/config/prompt');
-  if (!res) return;
-  const { prompt } = await res.json();
-  const ta = document.getElementById('ai-prompt');
-  if (ta) ta.value = prompt;
+  if (res) {
+    const { prompt } = await res.json();
+    const ta = document.getElementById('ai-prompt');
+    if (ta) ta.value = prompt;
+  }
+
+  const spRes = await apiFetch('/api/config/share-prices');
+  if (spRes) {
+    const { sharePrices } = await spRes.json();
+    const cb = document.getElementById('share-prices');
+    if (cb) cb.checked = !!sharePrices;
+  }
 }
 
 document.getElementById('btn-save-prompt')?.addEventListener('click', async () => {
@@ -374,6 +409,14 @@ document.getElementById('btn-save-prompt')?.addEventListener('click', async () =
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
+  });
+
+  // Guardar también la preferencia de precios
+  const sharePrices = document.getElementById('share-prices')?.checked;
+  await apiFetch('/api/config/share-prices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sharePrices }),
   });
 
   const status = document.getElementById('prompt-save-status');

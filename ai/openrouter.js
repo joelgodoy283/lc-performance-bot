@@ -84,28 +84,75 @@ async function callOpenRouter(messages, systemPrompt) {
 }
 
 /**
- * Construye el system prompt combinando el prompt configurable con la lista
- * actualizada de servicios cargados desde la solapa "Servicios".
+ * Devuelve la fecha y hora actual en español, zona horaria de Argentina.
+ * Se inyecta en el system prompt para que la IA entienda "hoy", "mañana", etc.
+ */
+function currentDateLine() {
+  const now = new Date();
+  const TZ = 'America/Argentina/Buenos_Aires';
+  const fecha = new Intl.DateTimeFormat('es-AR', {
+    timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  }).format(now);
+  const hora = new Intl.DateTimeFormat('es-AR', {
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(now);
+  // Fecha en formato YYYY-MM-DD (la que esperan las tools del calendario)
+  const iso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+  return { texto: `${fecha}, ${hora} hs (hora de Argentina)`, iso };
+}
+
+/**
+ * Construye el system prompt combinando el prompt configurable con la fecha
+ * actual y la lista de servicios cargados desde la solapa "Servicios".
+ *
+ * Precios: por defecto la IA NO informa precios (los servicios se inyectan sin
+ * monto). Se puede habilitar desde el dashboard con la config `share_prices`.
  */
 function buildSystemPrompt() {
   const base = getConfig('ai_prompt') || 'Eres un asistente de taller mecánico.';
+  const sharePrices = getConfig('share_prices') === 'true';
   const services = getServices();
 
-  if (!services.length) return base;
+  const { texto: fechaTexto, iso: fechaIso } = currentDateLine();
 
-  const lines = services.map((s) => {
-    const parts = [`- ${s.name}`];
-    if (s.description) parts.push(s.description);
-    let line = parts.join(': ');
-    if (s.price)  line += ` | Precio: ${s.price}`;
-    if (s.notes)  line += ` | A tener en cuenta: ${s.notes}`;
-    return line;
-  });
+  const dateBlock = `FECHA Y HORA ACTUAL:
+Hoy es ${fechaTexto}. En formato ISO: ${fechaIso}.
+Usá SIEMPRE esta fecha para interpretar expresiones como "hoy", "mañana", "pasado mañana", "el lunes", "la semana que viene", etc. Cuando consultes disponibilidad o agendes un turno, calculá la fecha real a partir de esta fecha actual y pasala a las herramientas en formato YYYY-MM-DD.`;
 
-  return `${base}
+  // Regla de precios (siempre presente, decide el comportamiento)
+  const priceRule = sharePrices
+    ? 'PRECIOS: Podés informar los precios de los servicios listados abajo cuando el cliente los pida.'
+    : 'PRECIOS: NO informes precios, montos ni presupuestos bajo ninguna circunstancia, aunque el cliente insista. Si preguntan por precios, respondé amablemente que los valores los confirma Lucas personalmente luego de revisar el vehículo, y ofrecé agendar un turno o tomar los datos para que Lucas lo contacte.';
 
-SERVICIOS DEL TALLER (usá esta información para responder sobre servicios, precios y detalles):
+  let prompt = `${base}
+
+${dateBlock}
+
+${priceRule}`;
+
+  if (services.length) {
+    const lines = services.map((s) => {
+      const parts = [`- ${s.name}`];
+      if (s.description) parts.push(s.description);
+      let line = parts.join(': ');
+      if (sharePrices && s.price) line += ` | Precio: ${s.price}`;
+      if (s.notes) line += ` | A tener en cuenta: ${s.notes}`;
+      return line;
+    });
+
+    const serviciosHeader = sharePrices
+      ? 'SERVICIOS DEL TALLER (usá esta información para responder sobre servicios, precios y detalles):'
+      : 'SERVICIOS DEL TALLER (usá esta información para responder sobre servicios y detalles, SIN mencionar precios):';
+
+    prompt += `
+
+${serviciosHeader}
 ${lines.join('\n')}`;
+  }
+
+  return prompt;
 }
 
 /**

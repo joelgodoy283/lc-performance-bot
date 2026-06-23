@@ -88,6 +88,16 @@ router.post('/config/prompt', requireApiAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// ─── Compartir precios (la IA informa montos o no) ──────────────────────────
+router.get('/config/share-prices', requireApiAuth, (req, res) => {
+  res.json({ sharePrices: getConfig('share_prices') === 'true' });
+});
+
+router.post('/config/share-prices', requireApiAuth, (req, res) => {
+  setConfig('share_prices', req.body?.sharePrices ? 'true' : 'false');
+  res.json({ success: true });
+});
+
 // ─── Google Calendar ────────────────────────────────────────────────────────
 router.get('/calendar/events', requireApiAuth, async (req, res) => {
   if (!isCalendarConfigured()) {

@@ -13,9 +13,9 @@
 ════════════════════════════════════════════════════ -->
 <aside class="sidebar">
   <div class="sidebar-header">
-    <span class="sidebar-logo">🔧</span>
+    <img src="/img/logo.svg" alt="LC Performance" class="sidebar-logo-img">
     <div>
-      <h2>LC Performance</h2>
+      <h2>LC <span class="brand-accent">PERFORMANCE</span></h2>
       <small>Panel de control</small>
     </div>
   </div>
@@ -292,6 +292,13 @@
           </label>
           <textarea id="ai-prompt" rows="20" placeholder="Cargando prompt..."></textarea>
         </div>
+        <label class="switch-row" style="margin-top:16px;">
+          <input type="checkbox" id="share-prices">
+          <span>Permitir que la IA informe precios a los clientes</span>
+        </label>
+        <small class="label-hint" style="display:block;margin-top:4px;">
+          Si está desactivado, la IA nunca menciona montos: deriva los precios a Lucas.
+        </small>
         <div class="form-actions">
           <button id="btn-save-prompt" class="btn btn-primary">💾 Guardar cambios</button>
           <span id="prompt-save-status" class="save-status"></span>

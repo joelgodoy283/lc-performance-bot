@@ -18,9 +18,18 @@ const { startDailySummary } = require('./jobs/daily-summary');
 
 // ─── Express + Socket.io ────────────────────────────────────────────────────
 const app = express();
+
+// Detrás de un reverse proxy (Traefik/Nginx en el VPS) → confiar en los headers
+// X-Forwarded-* para que la sesión y las cookies funcionen sobre HTTPS.
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
+  // Permitir ambos transportes y reconexión robusta detrás del proxy.
+  transports: ['websocket', 'polling'],
+  pingTimeout: 25000,
+  pingInterval: 20000,
 });
 
 // Hacer io accesible globalmente (usado en whatsapp/baileys.js y routes)

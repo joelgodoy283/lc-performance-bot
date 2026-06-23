@@ -64,8 +64,19 @@ body {
 }
 
 .login-logo .logo-icon { font-size: 48px; margin-bottom: 12px; }
-.login-logo h1 { font-size: 24px; font-weight: 700; color: var(--text); }
+.login-logo .logo-img {
+  width: 88px; height: 88px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 6px 20px rgba(0,168,232,.35));
+}
+.login-logo h1 {
+  font-size: 24px; font-weight: 800; color: var(--text);
+  text-transform: uppercase; letter-spacing: 2px;
+}
 .login-logo p  { color: var(--text-muted); font-size: 14px; }
+
+/* Acento de marca (parte "PERFORMANCE") */
+.brand-accent { color: var(--primary); }
 
 /* ─── LAYOUT ───────────────────────────────────────── */
 .sidebar {
@@ -89,7 +100,12 @@ body {
 }
 
 .sidebar-logo { font-size: 28px; }
-.sidebar-header h2 { font-size: 16px; font-weight: 700; line-height: 1.2; }
+.sidebar-logo-img {
+  width: 40px; height: 40px;
+  filter: drop-shadow(0 2px 8px rgba(0,168,232,.4));
+  flex-shrink: 0;
+}
+.sidebar-header h2 { font-size: 15px; font-weight: 800; line-height: 1.2; letter-spacing: .5px; }
 .sidebar-header small { color: var(--text-muted); font-size: 12px; }
 
 .sidebar-nav {

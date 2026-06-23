@@ -17,7 +17,7 @@ const TOOL_DEFINITIONS = [
         properties: {
           date: {
             type: 'string',
-            description: 'Fecha a consultar en formato YYYY-MM-DD. Ejemplo: "2024-12-20"',
+            description: 'Fecha a consultar en formato YYYY-MM-DD. Calculala a partir de la FECHA ACTUAL indicada en el system prompt (ej: si hoy es 2026-06-22 y el cliente dice "mañana", usá "2026-06-23").',
           },
         },
         required: ['date'],
@@ -42,7 +42,7 @@ const TOOL_DEFINITIONS = [
           },
           date: {
             type: 'string',
-            description: 'Fecha del turno en formato YYYY-MM-DD',
+            description: 'Fecha del turno en formato YYYY-MM-DD. Calculala a partir de la FECHA ACTUAL indicada en el system prompt (ej: "mañana", "el lunes" → fecha real).',
           },
           start_time: {
             type: 'string',
