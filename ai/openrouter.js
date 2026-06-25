@@ -110,6 +110,62 @@ function currentDateLine() {
 }
 
 /**
+ * Normaliza el input de un mensaje entrante. Acepta un string (texto plano) o
+ * un objeto { text, media, logText } (cuando vino con audio/imagen).
+ */
+function normalizeInput(input) {
+  if (typeof input === 'string') return { text: input, media: null, logText: input };
+  return {
+    text: input?.text || '',
+    media: input?.media || null,
+    logText: input?.logText || input?.text || '',
+  };
+}
+
+/** Mapea el mimetype de WhatsApp al formato que espera OpenRouter para audio. */
+function audioFormat(mime = '') {
+  const m = mime.toLowerCase();
+  if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
+  if (m.includes('wav')) return 'wav';
+  if (m.includes('m4a') || m.includes('mp4')) return 'm4a';
+  if (m.includes('aac')) return 'aac';
+  if (m.includes('flac')) return 'flac';
+  return 'ogg'; // notas de voz de WhatsApp (audio/ogg; codecs=opus)
+}
+
+/**
+ * Construye el `content` del mensaje de usuario para la API. Si hay un medio
+ * (imagen/audio), devuelve un array multimodal; si no, el texto plano.
+ */
+function buildUserContent(text, media) {
+  if (!media) return text || '';
+  if (media.kind === 'image') {
+    return [
+      { type: 'text', text: text || 'El cliente envió esta imagen. Mirala y respondé en base a lo que muestra.' },
+      { type: 'image_url', image_url: { url: `data:${media.mime || 'image/jpeg'};base64,${media.dataB64}` } },
+    ];
+  }
+  if (media.kind === 'audio') {
+    return [
+      { type: 'text', text: text || 'El cliente envió esta nota de voz. Entendé lo que dice y respondé acorde.' },
+      { type: 'input_audio', input_audio: { data: media.dataB64, format: audioFormat(media.mime) } },
+    ];
+  }
+  return text || '';
+}
+
+/**
+ * Inserta el contenido multimodal en el último mensaje (el actual) del historial
+ * que se manda a la API, dejando el resto como texto. Devuelve un array nuevo.
+ */
+function withCurrentMedia(messages, text, media) {
+  if (!media) return messages;
+  const copy = messages.map((m) => ({ ...m }));
+  copy[copy.length - 1] = { role: 'user', content: buildUserContent(text, media) };
+  return copy;
+}
+
+/**
  * Construye el system prompt combinando el prompt configurable con la fecha
  * actual y la lista de servicios cargados desde la solapa "Servicios".
  *
@@ -229,12 +285,14 @@ async function maybeUpdateClientProfile(phone, history) {
  * Procesa un mensaje entrante del cliente y retorna la respuesta del bot.
  * Gestiona el historial de conversación desde la base de datos.
  */
-async function processMessage(phone, userText) {
+async function processMessage(phone, input) {
+  const { text: userText, media, logText } = normalizeInput(input);
   const systemPrompt = buildSystemPrompt();
   const state = getConversationState(phone);
 
-  // Construir el mensaje de usuario
-  const userMessage = { role: 'user', content: userText };
+  // En el historial guardamos un texto legible (placeholder para audios/imágenes);
+  // el medio en sí solo se manda en la llamada actual, no se persiste ni se reenvía.
+  const userMessage = { role: 'user', content: logText || userText || '[mensaje]' };
 
   // Si es la primera interacción, agregar contexto al prompt del sistema
   let contextualPrompt = state.is_new
@@ -266,12 +324,17 @@ async function processMessage(phone, userText) {
   // Limitar historial para no superar el contexto del modelo
   const trimmedHistory = history.slice(-MAX_HISTORY_MESSAGES);
 
+  // Para la llamada actual, inyectar el audio/imagen en el último mensaje.
+  const apiMessages = withCurrentMedia(trimmedHistory, userText, media);
+
   let botReply;
   try {
-    botReply = await callOpenRouter(trimmedHistory, contextualPrompt, { clientPhone: phone });
+    botReply = await callOpenRouter(apiMessages, contextualPrompt, { clientPhone: phone });
   } catch (err) {
     console.error('[AI] Error llamando a OpenRouter:', err.response?.data || err.message);
-    botReply = 'Disculpá, tuve un problema técnico. Por favor escribí "hablar con Lucas" para atención directa o intentá de nuevo en unos minutos.';
+    botReply = media
+      ? 'Disculpá, no pude procesar bien tu audio/imagen. ¿Me lo escribís en un mensaje? Si preferís, escribí "hablar con Lucas".'
+      : 'Disculpá, tuve un problema técnico. Por favor escribí "hablar con Lucas" para atención directa o intentá de nuevo en unos minutos.';
   }
 
   // Guardar el estado actualizado
@@ -326,4 +389,7 @@ async function simpleCompletion(systemPrompt, userPrompt) {
   }
 }
 
-module.exports = { processMessage, buildSystemPrompt, simpleCompletion, callOpenRouter, currentDateLine };
+module.exports = {
+  processMessage, buildSystemPrompt, simpleCompletion, callOpenRouter, currentDateLine,
+  normalizeInput, withCurrentMedia,
+};

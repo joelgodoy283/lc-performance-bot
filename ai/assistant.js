@@ -13,7 +13,7 @@ const {
 } = require('../database/db');
 const cal = require('../calendar');
 const local = require('../calendar/local-calendar');
-const { callOpenRouter, currentDateLine } = require('./openrouter');
+const { callOpenRouter, currentDateLine, normalizeInput, withCurrentMedia } = require('./openrouter');
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const MAX_HISTORY_MESSAGES = 20;
@@ -430,15 +430,18 @@ async function executeAssistantTool(toolName, args) {
 
 // ─── Procesamiento del mensaje de Lucas ───────────────────────────────────────
 
-async function processAssistantMessage(phone, userText) {
+async function processAssistantMessage(phone, input) {
+  const { text: userText, media, logText } = normalizeInput(input);
   const systemPrompt = buildAssistantPrompt();
   const state = getConversationState(phone);
 
-  const history = [...state.history, { role: 'user', content: userText }].slice(-MAX_HISTORY_MESSAGES);
+  const history = [...state.history, { role: 'user', content: logText || userText || '[mensaje]' }]
+    .slice(-MAX_HISTORY_MESSAGES);
+  const apiMessages = withCurrentMedia(history, userText, media);
 
   let reply;
   try {
-    reply = await callOpenRouter(history, systemPrompt, {
+    reply = await callOpenRouter(apiMessages, systemPrompt, {
       clientPhone: phone,
       tools: ASSISTANT_TOOLS,
       executeToolFn: executeAssistantTool,

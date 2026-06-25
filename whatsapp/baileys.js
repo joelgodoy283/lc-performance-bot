@@ -5,6 +5,7 @@ const {
   fetchLatestBaileysVersion,
   makeInMemoryStore,
   isJidBroadcast,
+  downloadMediaMessage,
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
@@ -28,6 +29,12 @@ const HUMAN_TRIGGERS = [
 let sock = null;
 let connectionState = { status: 'disconnected', qr: null };
 let reconnectTimeout = null;
+
+// Logger silencioso para la descarga de medios (audios/imágenes)
+const mediaLogger = pino({ level: 'silent' });
+
+// Límite defensivo de tamaño de medio a procesar (~12 MB en base64 ≈ 9 MB real)
+const MAX_MEDIA_BYTES = 9 * 1024 * 1024;
 
 function getConnectionState() {
   return connectionState;
@@ -127,23 +134,24 @@ async function startWhatsApp() {
         continue;
       }
 
-      const text  = extractTextFromMessage(msg);
+      const content = await extractContent(msg);
 
-      if (!text) continue;
+      if (!content) continue;
 
-      console.log(`[WA] Mensaje de ${phone}: "${text.substring(0, 80)}"`);
+      const logText = content.logText;
+      console.log(`[WA] Mensaje de ${phone}: "${logText.substring(0, 80)}"`);
 
-      // Guardar en DB y emitir al dashboard
-      saveMessage(phone, 'incoming', text);
-      logMessage(phone, 'incoming', text); // historial de largo plazo (Supabase)
-      global.io?.emit('chat:new_message', { phone, direction: 'incoming', content: text, timestamp: new Date().toISOString() });
+      // Guardar en DB y emitir al dashboard (placeholder legible para los medios)
+      saveMessage(phone, 'incoming', logText);
+      logMessage(phone, 'incoming', logText); // historial de largo plazo (Supabase)
+      global.io?.emit('chat:new_message', { phone, direction: 'incoming', content: logText, timestamp: new Date().toISOString() });
 
       // ─── Modo asistente: si escribe Lucas, lo atiende su asistente, no el bot de clientes
       if (isLucas(phone)) {
-        console.log(`[WA] Mensaje de Lucas (modo asistente): "${text.substring(0, 60)}"`);
+        console.log(`[WA] Mensaje de Lucas (modo asistente): "${logText.substring(0, 60)}"`);
         await sock.sendPresenceUpdate('composing', phone);
         try {
-          const reply = await processAssistantMessage(phone, text);
+          const reply = await processAssistantMessage(phone, content);
           await sendMessage(phone, reply);
         } catch (err) {
           console.error('[WA] Error en modo asistente:', err.message);
@@ -154,8 +162,8 @@ async function startWhatsApp() {
         continue;
       }
 
-      // Verificar si es un trigger de handoff humano
-      const textNormalized = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      // Verificar si es un trigger de handoff humano (sobre el texto, si lo hay)
+      const textNormalized = (content.text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
       const isHumanRequest = HUMAN_TRIGGERS.some(t => textNormalized.includes(t));
 
       if (isHumanRequest) {
@@ -178,7 +186,7 @@ async function startWhatsApp() {
 
       // Procesar con IA
       try {
-        const reply = await processMessage(phone, text);
+        const reply = await processMessage(phone, content);
         await sendMessage(phone, reply);
       } catch (err) {
         console.error('[WA] Error procesando mensaje con IA:', err.message);
@@ -214,21 +222,60 @@ async function sendMessage(phone, text) {
 }
 
 /**
- * Extrae texto de los distintos tipos de mensaje de Baileys
+ * Extrae el contenido de un mensaje de Baileys. Devuelve:
+ *   { text, media, logText, failed }  o  null si no hay nada que procesar.
+ * - text:    texto/epígrafe del cliente (puede ser '').
+ * - media:   { kind:'image'|'audio', mime, dataB64 }  o null.
+ * - logText: lo que se guarda/muestra en el panel (placeholder para medios).
  */
-function extractTextFromMessage(msg) {
+async function extractContent(msg) {
   const m = msg.message;
   if (!m) return null;
 
-  return (
+  const text =
     m.conversation ||
     m.extendedTextMessage?.text ||
     m.imageMessage?.caption ||
     m.videoMessage?.caption ||
     m.buttonsResponseMessage?.selectedDisplayText ||
     m.listResponseMessage?.title ||
-    null
-  );
+    '';
+
+  // Imagen (con o sin epígrafe)
+  if (m.imageMessage) {
+    const media = await tryDownloadMedia(msg, m.imageMessage.mimetype || 'image/jpeg', 'image');
+    if (media) return { text, media, logText: text ? `🖼️ ${text}` : '[Imagen]' };
+    return { text, media: null, logText: text ? `🖼️ ${text}` : '[Imagen no procesable]', failed: true };
+  }
+
+  // Audio / nota de voz
+  if (m.audioMessage) {
+    const media = await tryDownloadMedia(msg, m.audioMessage.mimetype || 'audio/ogg', 'audio');
+    if (media) return { text: '', media, logText: '[Nota de voz]' };
+    return { text: '', media: null, logText: '[Nota de voz no procesable]', failed: true };
+  }
+
+  if (text) return { text, media: null, logText: text };
+  return null;
+}
+
+/** Descarga un medio de WhatsApp y lo devuelve en base64, o null si falla. */
+async function tryDownloadMedia(msg, mime, kind) {
+  try {
+    const buffer = await downloadMediaMessage(
+      msg, 'buffer', {},
+      { logger: mediaLogger, reuploadRequest: sock.updateMediaMessage }
+    );
+    if (!buffer || !buffer.length) return null;
+    if (buffer.length > MAX_MEDIA_BYTES) {
+      console.warn(`[WA] Medio ${kind} omitido (demasiado grande: ${buffer.length} bytes).`);
+      return null;
+    }
+    return { kind, mime, dataB64: buffer.toString('base64') };
+  } catch (err) {
+    console.error(`[WA] Error descargando ${kind}:`, err.message);
+    return null;
+  }
 }
 
 module.exports = { startWhatsApp, sendMessage, getConnectionState };
