@@ -54,10 +54,10 @@ const TOOL_DEFINITIONS = [
           },
           client_phone: {
             type: 'string',
-            description: 'Número de WhatsApp del cliente',
+            description: 'NO completar: el sistema adjunta automáticamente el número de WhatsApp del cliente. Dejalo vacío.',
           },
         },
-        required: ['client_name', 'car_info', 'date', 'start_time', 'end_time', 'client_phone'],
+        required: ['client_name', 'car_info', 'date', 'start_time', 'end_time'],
       },
     },
   },

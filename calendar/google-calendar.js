@@ -76,7 +76,27 @@ function generateAuthUrl() {
 
 async function handleOAuthCallback(code) {
   const oAuth2Client = createOAuthClient();
-  const { tokens } = await oAuth2Client.getToken(code);
+
+  // El POST a oauth2.googleapis.com/token a veces falla con "Premature close"
+  // (reset transitorio del socket TCP). Reintentamos un par de veces antes de
+  // rendirnos, ya que el código de Google es de un solo uso pero sigue válido
+  // mientras no se haya canjeado con éxito.
+  let tokens;
+  let lastErr;
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      ({ tokens } = await oAuth2Client.getToken(code));
+      break;
+    } catch (err) {
+      lastErr = err;
+      const transitorio = /premature close|ECONNRESET|ETIMEDOUT|socket hang up|network|fetch failed/i.test(err.message || '');
+      if (!transitorio || intento === 3) throw err;
+      console.warn(`[GOOGLE AUTH] Intento ${intento} falló (${err.message}). Reintentando...`);
+      await new Promise(r => setTimeout(r, 800 * intento));
+    }
+  }
+  if (!tokens) throw lastErr;
+
   oAuth2Client.setCredentials(tokens);
   fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
   return tokens;

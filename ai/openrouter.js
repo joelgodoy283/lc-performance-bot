@@ -10,7 +10,7 @@ const MAX_HISTORY_MESSAGES = 20; // Mantener últimos N mensajes para no superar
  * Llama a la API de OpenRouter con soporte de tool calling.
  * Ejecuta el loop de herramientas automáticamente hasta obtener una respuesta final.
  */
-async function callOpenRouter(messages, systemPrompt) {
+async function callOpenRouter(messages, systemPrompt, clientPhone = null) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model  = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
@@ -69,7 +69,7 @@ async function callOpenRouter(messages, systemPrompt) {
       }
 
       console.log(`[AI] Ejecutando tool: ${toolName}`, args);
-      const toolResult = await executeTool(toolName, args, null);
+      const toolResult = await executeTool(toolName, args, clientPhone);
 
       allMessages.push({
         role: 'tool',
@@ -252,7 +252,7 @@ async function processMessage(phone, userText) {
 
   let botReply;
   try {
-    botReply = await callOpenRouter(trimmedHistory, contextualPrompt);
+    botReply = await callOpenRouter(trimmedHistory, contextualPrompt, phone);
   } catch (err) {
     console.error('[AI] Error llamando a OpenRouter:', err.response?.data || err.message);
     botReply = 'Disculpá, tuve un problema técnico. Por favor escribí "hablar con Lucas" para atención directa o intentá de nuevo en unos minutos.';
