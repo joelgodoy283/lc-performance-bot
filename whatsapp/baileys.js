@@ -12,6 +12,8 @@ const qrcode = require('qrcode');
 const path = require('path');
 const { saveMessage, isPaused, pauseContact, isBlocked } = require('../database/db');
 const { processMessage } = require('../ai/openrouter');
+const { processAssistantMessage } = require('../ai/assistant');
+const { isLucas } = require('./notify');
 const { logMessage } = require('../supabase/client');
 
 const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, '..', 'sessions');
@@ -135,6 +137,22 @@ async function startWhatsApp() {
       saveMessage(phone, 'incoming', text);
       logMessage(phone, 'incoming', text); // historial de largo plazo (Supabase)
       global.io?.emit('chat:new_message', { phone, direction: 'incoming', content: text, timestamp: new Date().toISOString() });
+
+      // ─── Modo asistente: si escribe Lucas, lo atiende su asistente, no el bot de clientes
+      if (isLucas(phone)) {
+        console.log(`[WA] Mensaje de Lucas (modo asistente): "${text.substring(0, 60)}"`);
+        await sock.sendPresenceUpdate('composing', phone);
+        try {
+          const reply = await processAssistantMessage(phone, text);
+          await sendMessage(phone, reply);
+        } catch (err) {
+          console.error('[WA] Error en modo asistente:', err.message);
+          await sendMessage(phone, 'Uh, tuve un error técnico. Probá de nuevo.');
+        } finally {
+          await sock.sendPresenceUpdate('paused', phone);
+        }
+        continue;
+      }
 
       // Verificar si es un trigger de handoff humano
       const textNormalized = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');

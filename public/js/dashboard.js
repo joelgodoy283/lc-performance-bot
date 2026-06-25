@@ -27,7 +27,7 @@ function refreshView(tabId) {
     loadChatList();
     if (currentPhone) openChat(currentPhone);
   }
-  if (tabId === 'tab-calendar')  loadCalendar();
+  if (tabId === 'tab-calendar')  { loadTurnos(); loadCalendar(); }
   if (tabId === 'tab-instagram') loadInstagramStatus();
 }
 
@@ -87,8 +87,8 @@ function activateTab(tabId) {
   document.getElementById(tabId)?.classList.add('active');
 
   if (tabId === 'tab-chats')      loadChatList();
-  if (tabId === 'tab-prompt')     { loadPrompt(); loadSummaryConfig(); }
-  if (tabId === 'tab-calendar')   loadCalendar();
+  if (tabId === 'tab-prompt')     { loadPrompt(); loadSummaryConfig(); loadAssistantPrompt(); }
+  if (tabId === 'tab-calendar')   { loadTurnos(); loadCalendar(); }
   if (tabId === 'tab-instagram')  loadInstagramStatus();
   if (tabId === 'tab-services')   loadServices();
   if (tabId === 'tab-exceptions') loadExceptions();
@@ -640,6 +640,157 @@ document.getElementById('btn-test-summary')?.addEventListener('click', async () 
     showToast('✅ Resumen enviado por WhatsApp', 'success');
   } else {
     showToast('❌ ' + (result.reason || 'No se pudo enviar'), 'error');
+  }
+});
+
+// ─── TURNOS: CONFIG ──────────────────────────────────
+function loadTurnos() {
+  loadTurnosConfig();
+  loadAppointments();
+}
+
+async function loadTurnosConfig() {
+  const res = await apiFetch('/api/config/turnos');
+  if (!res) return;
+  const c = await res.json();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+  const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v === 'true'; };
+
+  set('cfg-lucas-number', c.lucas_number);
+  set('cfg-capacity', c.cal_capacity_per_day);
+  set('cfg-slots', c.cal_slots);
+  set('cfg-review-url', c.google_review_url);
+  chk('cfg-morning', c.morning_summary_enabled);
+  chk('cfg-checkin', c.checkin_enabled);
+  chk('cfg-reminder', c.reminder_enabled);
+  chk('cfg-review', c.review_enabled);
+
+  const days = (c.cal_workdays || '').split(',').map(s => s.trim());
+  for (let d = 0; d <= 6; d++) {
+    const el = document.getElementById('wd-' + d);
+    if (el) el.checked = days.includes(String(d));
+  }
+}
+
+document.getElementById('btn-save-turnos')?.addEventListener('click', async () => {
+  const workdays = [];
+  for (let d = 0; d <= 6; d++) {
+    if (document.getElementById('wd-' + d)?.checked) workdays.push(d);
+  }
+  const body = {
+    lucas_number: document.getElementById('cfg-lucas-number').value.trim(),
+    cal_capacity_per_day: document.getElementById('cfg-capacity').value.trim() || '3',
+    cal_slots: document.getElementById('cfg-slots').value.trim(),
+    cal_workdays: workdays.join(','),
+    google_review_url: document.getElementById('cfg-review-url').value.trim(),
+    morning_summary_enabled: document.getElementById('cfg-morning').checked,
+    checkin_enabled: document.getElementById('cfg-checkin').checked,
+    reminder_enabled: document.getElementById('cfg-reminder').checked,
+    review_enabled: document.getElementById('cfg-review').checked,
+  };
+  const res = await apiFetch('/api/config/turnos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const status = document.getElementById('turnos-save-status');
+  if (res?.ok) {
+    if (status) { status.textContent = '✅ Guardado'; status.classList.add('visible'); }
+    setTimeout(() => status?.classList.remove('visible'), 3000);
+  } else {
+    showToast('❌ Error al guardar la configuración', 'error');
+  }
+});
+
+document.getElementById('btn-test-morning')?.addEventListener('click', async () => {
+  showToast('⏳ Enviando resumen matutino de prueba...', 'message');
+  const res = await apiFetch('/api/turnos/test-morning', { method: 'POST' });
+  if (!res) return;
+  const r = await res.json();
+  showToast(r.sent ? '✅ Resumen matutino enviado' : '❌ ' + (r.reason || 'No se pudo enviar'), r.sent ? 'success' : 'error');
+});
+
+document.getElementById('btn-test-reminders')?.addEventListener('click', async () => {
+  showToast('⏳ Enviando recordatorios de prueba...', 'message');
+  const res = await apiFetch('/api/turnos/test-reminders', { method: 'POST' });
+  if (!res) return;
+  const r = await res.json();
+  showToast(r.ok ? `✅ ${r.sent || 0} recordatorio(s) enviado(s)` : '❌ ' + (r.reason || 'No se pudo'), r.ok ? 'success' : 'error');
+});
+
+// ─── TURNOS: TABLA ───────────────────────────────────
+const STATUS_LABELS = {
+  scheduled:  { t: 'Agendado',   c: 'badge-active' },
+  attended:   { t: 'Asistió',    c: 'badge-active' },
+  in_progress:{ t: 'En proceso', c: 'badge-warning' },
+  finished:   { t: 'Terminado',  c: 'badge-active' },
+  retrieved:  { t: 'Retirado',   c: 'badge-paused' },
+  cancelled:  { t: 'Cancelado',  c: 'badge-paused' },
+  no_show:    { t: 'No asistió',  c: 'badge-warning' },
+};
+
+async function loadAppointments() {
+  const tbody = document.getElementById('appointments-tbody');
+  if (!tbody) return;
+  const res = await apiFetch('/api/appointments');
+  if (!res) { tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Error al cargar</td></tr>'; return; }
+  const { appointments } = await res.json();
+
+  if (!appointments.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No hay turnos en la ventana actual</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = appointments.map(a => {
+    const st = STATUS_LABELS[a.status] || { t: a.status, c: 'badge' };
+    const activo = !['cancelled', 'no_show', 'retrieved'].includes(a.status);
+    const nota = a.review_rating ? `⭐ ${a.review_rating}/10` : (a.review_requested ? '⏳' : '');
+    return `
+      <tr data-id="${a.id}">
+        <td>${escapeHtml(a.date)}</td>
+        <td>${escapeHtml(a.time || '—')}</td>
+        <td>${escapeHtml(a.client_name || formatPhone(a.client_phone))}</td>
+        <td>${escapeHtml(a.car_info || '')}</td>
+        <td>${escapeHtml(a.service || '')}</td>
+        <td><span class="badge ${st.c}">${st.t}</span></td>
+        <td>${nota}</td>
+        <td class="col-actions">
+          ${activo ? `<button class="btn btn-sm btn-secondary" onclick="cancelAppointment(${a.id})">✖ Cancelar</button>` : ''}
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function cancelAppointment(id) {
+  if (!confirm('¿Cancelar este turno? Se le avisará al cliente y se le ofrecerá reagendar.')) return;
+  const res = await apiFetch(`/api/appointments/${id}/cancel`, { method: 'POST' });
+  if (!res) return;
+  const r = await res.json();
+  if (r.success) { showToast('Turno cancelado', 'message'); loadAppointments(); }
+  else showToast('❌ ' + (r.message || r.error || 'No se pudo cancelar'), 'error');
+}
+
+document.getElementById('btn-refresh-appointments')?.addEventListener('click', loadAppointments);
+
+// ─── ASISTENTE DE LUCAS (prompt) ─────────────────────
+async function loadAssistantPrompt() {
+  const res = await apiFetch('/api/config/assistant-prompt');
+  if (!res) return;
+  const { prompt } = await res.json();
+  const ta = document.getElementById('assistant-prompt');
+  if (ta) ta.value = prompt || '';
+}
+
+document.getElementById('btn-save-assistant-prompt')?.addEventListener('click', async () => {
+  const prompt = document.getElementById('assistant-prompt')?.value.trim();
+  if (!prompt) { showToast('❌ El prompt no puede estar vacío', 'error'); return; }
+  const res = await apiFetch('/api/config/assistant-prompt', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }),
+  });
+  const status = document.getElementById('assistant-save-status');
+  if (res?.ok) {
+    if (status) { status.textContent = '✅ Guardado'; status.classList.add('visible'); }
+    setTimeout(() => status?.classList.remove('visible'), 3000);
+  } else {
+    showToast('❌ Error al guardar', 'error');
   }
 });
 

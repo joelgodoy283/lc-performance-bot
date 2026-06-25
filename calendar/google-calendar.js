@@ -210,6 +210,15 @@ async function getUpcomingEvents(days = 7) {
   return response.data.items || [];
 }
 
+// ─── Borrar evento (cancelación de turno) ────────────────────────────────────
+
+async function deleteEvent(eventId) {
+  const auth = getAuthClient();
+  const calendar = google.calendar({ version: 'v3', auth });
+  await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
+  return { success: true };
+}
+
 function formatTime(dateTimeStr) {
   if (!dateTimeStr) return '';
   const d = new Date(dateTimeStr);
@@ -223,6 +232,7 @@ module.exports = {
   getAvailability,
   createAppointment,
   getUpcomingEvents,
+  deleteEvent,
   isCalendarConfigured,
   hasCredentials,
 };

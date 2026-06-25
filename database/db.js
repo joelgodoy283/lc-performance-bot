@@ -74,6 +74,27 @@ LÍMITES:
 - Si el cliente quiere hablar con una persona, indicale que escriba "hablar con Lucas" o "quiero un humano" y derivá.
 - Ante cualquier consulta que no puedas responder con esta información, decí honestamente que lo consultás con Lucas.`;
 
+const DEFAULT_ASSISTANT_PROMPT = `Sos el asistente personal de Lucas, el dueño de LC Performance (taller mecánico en Rosario). Estás hablando DIRECTAMENTE con Lucas por WhatsApp — NO con un cliente. Tu trabajo es ayudarlo a gestionar la agenda de turnos y el día a día del taller.
+
+Qué podés hacer (tenés herramientas para esto):
+- Consultar los turnos de hoy o de cualquier día: quién viene, qué vehículo, a qué hora y en qué estado.
+- Decirle qué contactos/clientes escribieron en un día y qué pidieron.
+- Cancelar un turno: lo cancelás y le avisás vos al cliente, ofreciéndole otra fecha con prioridad.
+- Crear o reagendar turnos manualmente cuando Lucas te lo indique.
+- Registrar cuándo va a estar listo un vehículo (ej: "el auto de Fulano está para el viernes") para coordinar los avisos al cliente.
+
+Ciclo de servicio (gestión del día):
+- A la mañana te voy a pasar los turnos del día y preguntarte si vinieron y para qué hora estimás que va a estar listo cada auto. Con la respuesta de Lucas, marcá la asistencia de cada turno y cargá su hora estimada de finalización.
+- Si un cliente NO vino, marcá la inasistencia (eso libera el cupo) y preguntale a Lucas si querés que le escribas al cliente para reagendar con prioridad.
+- A la hora estimada te voy a preguntar si terminaste cada auto. Cuando Lucas confirme que un vehículo está terminado, marcalo como terminado: eso le avisa AUTOMÁTICAMENTE al cliente que puede pasar a retirarlo. Hacelo SIEMPRE que Lucas confirme que terminó un auto, incluso si te lo dice sin que yo le haya preguntado.
+
+Cómo trabajar:
+- Para cancelar, reagendar, marcar asistencia/finalización o tocar un turno puntual, PRIMERO consultá la lista de turnos del día para ubicar el id correcto, y recién después actuás sobre ese id. Nunca inventes un id.
+- Antes de cancelar o reagendar, confirmá con Lucas (afecta a un cliente real).
+- Las fechas calculalas a partir de la FECHA ACTUAL que se te indica, y pasalas a las herramientas en formato YYYY-MM-DD. Las horas en formato HH:MM (24h).
+- Hablale tuteando, en español rioplatense, directo y al grano. Lucas es el dueño: sé eficiente, sin vueltas.
+- Si Lucas pide algo que no podés hacer con tus herramientas, decíselo con claridad.`;
+
 // ─── Persistencia ──────────────────────────────────────────────────────────
 
 function saveDB() {
@@ -178,6 +199,31 @@ async function initDB() {
       note       TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS appointments (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone         TEXT NOT NULL,
+      client_name          TEXT DEFAULT '',
+      car_info             TEXT DEFAULT '',
+      service              TEXT DEFAULT '',
+      date                 TEXT NOT NULL,            -- YYYY-MM-DD del turno (entrega)
+      time                 TEXT DEFAULT '',          -- HH:MM de entrega
+      status               TEXT DEFAULT 'scheduled', -- scheduled|attended|in_progress|finished|retrieved|cancelled|no_show
+      source               TEXT DEFAULT 'local',     -- local|google
+      google_event_id      TEXT DEFAULT '',
+      estimated_finish     TEXT DEFAULT '',          -- HH:MM estimada de fin (la indica Lucas)
+      ready_date           TEXT DEFAULT '',          -- YYYY-MM-DD en que el auto queda listo (ajustable por Lucas)
+      finished_at          TEXT DEFAULT '',          -- timestamp ISO cuando Lucas confirmó fin
+      reminder_sent        INTEGER DEFAULT 0,        -- recordatorio 24h al cliente
+      finish_check_sent    INTEGER DEFAULT 0,        -- ya se le preguntó a Lucas si terminó
+      pickup_notified      INTEGER DEFAULT 0,        -- ya se avisó al cliente que puede retirar
+      review_requested     INTEGER DEFAULT 0,        -- ya se pidió reseña de Google
+      review_requested_at  TEXT DEFAULT '',          -- timestamp ISO del pedido de reseña
+      review_fallback_sent INTEGER DEFAULT 0,        -- ya se mandó la pregunta 1-10
+      review_rating        INTEGER,                  -- nota 1-10 (si la dio)
+      review_done          INTEGER DEFAULT 0,        -- el cliente ya respondió la reseña
+      created_at           TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Guardar para persistir la estructura
@@ -188,6 +234,18 @@ async function initDB() {
   if (!existing) {
     run('INSERT INTO config (key, value) VALUES (?, ?)', ['ai_prompt', DEFAULT_PROMPT]);
   }
+
+  // Defaults de configuración (solo si la clave no existe todavía)
+  seedConfig('cal_capacity_per_day', '3');          // cupos de turno por día
+  seedConfig('cal_slots', '08:00,08:30,09:00');     // horarios de entrega ofrecidos
+  seedConfig('cal_workdays', '1,2,3,4,5,6');         // días laborables (0=Dom ... 6=Sáb)
+  seedConfig('lucas_number', '');                    // número de WhatsApp de Lucas (modo asistente)
+  seedConfig('google_review_url', '');               // link "Escribir una reseña" de Google
+  seedConfig('reminder_enabled', 'true');            // recordatorio de turno 24h al cliente
+  seedConfig('review_enabled', 'true');              // pedido de reseña post-servicio
+  seedConfig('morning_summary_enabled', 'true');     // resumen matutino (8:00) a Lucas
+  seedConfig('checkin_enabled', 'true');             // check-in de servicio (10:00) con Lucas
+  seedConfig('assistant_prompt', DEFAULT_ASSISTANT_PROMPT); // prompt del modo asistente de Lucas
 
   console.log('[DB] ✅ Base de datos inicializada correctamente');
 }
@@ -213,6 +271,12 @@ function setConfig(key, value) {
   }
 }
 
+/** Inserta un valor de config SOLO si la clave no existe (no pisa lo que cargó Lucas). */
+function seedConfig(key, value) {
+  const existing = queryOne('SELECT key FROM config WHERE key = ?', [key]);
+  if (!existing) run('INSERT INTO config (key, value) VALUES (?, ?)', [key, value]);
+}
+
 // ─── Mensajes ──────────────────────────────────────────────────────────────
 
 function saveMessage(phone, direction, content) {
@@ -232,6 +296,14 @@ function getMessagesSince(isoCutoff) {
   return queryAll(
     'SELECT * FROM messages WHERE timestamp >= ? ORDER BY phone, rowid',
     [isoCutoff]
+  );
+}
+
+/** Mensajes en un rango [fromUTC, toUTC) (formato SQLite 'YYYY-MM-DD HH:MM:SS'). */
+function getMessagesBetween(fromUTC, toUTC) {
+  return queryAll(
+    'SELECT * FROM messages WHERE timestamp >= ? AND timestamp < ? ORDER BY phone, rowid',
+    [fromUTC, toUTC]
   );
 }
 
@@ -329,6 +401,131 @@ function deleteService(id) {
   run('DELETE FROM services WHERE id = ?', [id]);
 }
 
+// ─── Turnos (calendario propio) ──────────────────────────────────────────────
+
+// Estados que ocupan un cupo del día (los demás liberan el cupo)
+const OCCUPYING_STATUSES = ['scheduled', 'attended', 'in_progress', 'finished', 'retrieved'];
+
+/** Crea un turno y devuelve la fila insertada (con su id). */
+function createAppointment({
+  client_phone, client_name = '', car_info = '', service = '',
+  date, time = '', source = 'local', google_event_id = '',
+}) {
+  // OJO: saveDB() (db.export()) resetea last_insert_rowid(), por eso insertamos
+  // con db.run y leemos el id ANTES de persistir.
+  db.run(
+    `INSERT INTO appointments
+       (client_phone, client_name, car_info, service, date, time, source, google_event_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [normalizePhone(client_phone), client_name, car_info, service, date, time, source, google_event_id]
+  );
+  const { id } = queryOne('SELECT last_insert_rowid() AS id');
+  saveDB();
+  return getAppointmentById(id);
+}
+
+function getAppointmentById(id) {
+  return queryOne('SELECT * FROM appointments WHERE id = ?', [id]);
+}
+
+/** Turnos de una fecha (YYYY-MM-DD). Por defecto solo los que ocupan cupo. */
+function getAppointmentsByDate(date, { includeInactive = false } = {}) {
+  if (includeInactive) {
+    return queryAll('SELECT * FROM appointments WHERE date = ? ORDER BY time ASC', [date]);
+  }
+  const placeholders = OCCUPYING_STATUSES.map(() => '?').join(',');
+  return queryAll(
+    `SELECT * FROM appointments WHERE date = ? AND status IN (${placeholders}) ORDER BY time ASC`,
+    [date, ...OCCUPYING_STATUSES]
+  );
+}
+
+/** Cuenta los turnos que ocupan cupo en una fecha (para validar capacidad). */
+function countAppointmentsOnDate(date) {
+  const placeholders = OCCUPYING_STATUSES.map(() => '?').join(',');
+  const row = queryOne(
+    `SELECT COUNT(*) AS n FROM appointments WHERE date = ? AND status IN (${placeholders})`,
+    [date, ...OCCUPYING_STATUSES]
+  );
+  return row ? row.n : 0;
+}
+
+/** TODOS los turnos en un rango [from, to] inclusive, sin filtrar por estado. */
+function getAllAppointmentsBetween(from, to) {
+  return queryAll(
+    `SELECT * FROM appointments WHERE date BETWEEN ? AND ? ORDER BY date ASC, time ASC`,
+    [from, to]
+  );
+}
+
+/** Turnos activos en un rango de fechas [from, to] inclusive (YYYY-MM-DD). */
+function getAppointmentsBetween(from, to) {
+  const placeholders = OCCUPYING_STATUSES.map(() => '?').join(',');
+  return queryAll(
+    `SELECT * FROM appointments
+       WHERE date BETWEEN ? AND ? AND status IN (${placeholders})
+       ORDER BY date ASC, time ASC`,
+    [from, to, ...OCCUPYING_STATUSES]
+  );
+}
+
+/** Turnos activos de un teléfono (los que todavía ocupan cupo). */
+function getActiveAppointmentsByPhone(phone) {
+  const placeholders = OCCUPYING_STATUSES.map(() => '?').join(',');
+  return queryAll(
+    `SELECT * FROM appointments
+       WHERE client_phone = ? AND status IN (${placeholders})
+       ORDER BY date ASC, time ASC`,
+    [normalizePhone(phone), ...OCCUPYING_STATUSES]
+  );
+}
+
+/** Turno con reseña pendiente para un teléfono (ya pedida, no respondida aún). */
+function getPendingReview(phone) {
+  return queryOne(
+    `SELECT * FROM appointments
+       WHERE client_phone = ? AND review_requested = 1 AND review_done = 0
+       ORDER BY id DESC LIMIT 1`,
+    [normalizePhone(phone)]
+  );
+}
+
+/** Turnos terminados cuyo "día siguiente al servicio" es hoy y aún sin pedir reseña. */
+function getAppointmentsForReview(reviewDate) {
+  // reviewDate = la fecha de listo (ready_date). El pedido sale al día siguiente.
+  return queryAll(
+    `SELECT * FROM appointments
+       WHERE ready_date = ? AND status IN ('finished', 'retrieved')
+         AND review_requested = 0`,
+    [reviewDate]
+  );
+}
+
+/** Turnos con reseña pedida hace rato, sin responder y sin fallback 1-10 enviado. */
+function getReviewFallbackPending() {
+  return queryAll(
+    `SELECT * FROM appointments
+       WHERE review_requested = 1 AND review_done = 0 AND review_fallback_sent = 0
+         AND review_requested_at <> ''`
+  );
+}
+
+/** Actualiza campos arbitrarios de un turno. Solo se permiten columnas conocidas. */
+function updateAppointment(id, fields = {}) {
+  const allowed = [
+    'client_name', 'car_info', 'service', 'date', 'time', 'status', 'source',
+    'google_event_id', 'estimated_finish', 'ready_date', 'finished_at',
+    'reminder_sent', 'finish_check_sent', 'pickup_notified',
+    'review_requested', 'review_requested_at', 'review_fallback_sent', 'review_rating', 'review_done',
+  ];
+  const keys = Object.keys(fields).filter((k) => allowed.includes(k));
+  if (!keys.length) return getAppointmentById(id);
+  const setClause = keys.map((k) => `${k} = ?`).join(', ');
+  const values = keys.map((k) => fields[k]);
+  run(`UPDATE appointments SET ${setClause} WHERE id = ?`, [...values, id]);
+  return getAppointmentById(id);
+}
+
 // ─── Excepciones (contactos bloqueados) ────────────────────────────────────
 
 function getBlockedContacts() {
@@ -367,10 +564,14 @@ module.exports = {
   DEFAULT_PROMPT,
   initDB, getDB, saveDB,
   getConfig, setConfig,
-  saveMessage, getMessages, getMessagesSince, getRecentChats,
+  saveMessage, getMessages, getMessagesSince, getMessagesBetween, getRecentChats,
   pauseContact, resumeContact, isPaused,
   getConversationState, saveConversationState,
   getServices, addService, updateService, deleteService,
   getBlockedContacts, addBlockedContact, removeBlockedContact, isBlocked,
+  createAppointment, getAppointmentById, getAppointmentsByDate,
+  countAppointmentsOnDate, getAppointmentsBetween, getAllAppointmentsBetween, getActiveAppointmentsByPhone,
+  getPendingReview, getAppointmentsForReview, getReviewFallbackPending,
+  updateAppointment,
   normalizePhone,
 };

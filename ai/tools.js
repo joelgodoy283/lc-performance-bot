@@ -2,7 +2,8 @@
  * Definición de herramientas (Tool Calling) disponibles para la IA.
  * Cada tool tiene: nombre, descripción, parámetros JSON Schema, y función ejecutora.
  */
-const { getAvailability, createAppointment, isCalendarConfigured } = require('../calendar/google-calendar');
+const { getAvailability, createAppointment, isConfigured } = require('../calendar');
+const { getPendingReview, updateAppointment } = require('../database/db');
 
 // ─── Definición de tools para OpenRouter (formato OpenAI) ─────────────────
 
@@ -61,14 +62,29 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'record_service_rating',
+      description: 'Registra la valoración del cliente sobre el servicio recibido. Usala SOLO cuando el cliente tiene un pedido de reseña pendiente y te da una nota del 1 al 10, o te confirma que dejó la reseña en Google.',
+      parameters: {
+        type: 'object',
+        properties: {
+          rating: { type: 'number', description: 'Nota del 1 al 10 que dio el cliente (si la dio).' },
+          left_google_review: { type: 'boolean', description: 'true si el cliente confirma que dejó la reseña en Google.' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // ─── Ejecutor de tools ────────────────────────────────────────────────────
 
 async function executeTool(toolName, args, clientPhone) {
-  if (!isCalendarConfigured()) {
+  if (!isConfigured()) {
     return JSON.stringify({
-      error: 'Google Calendar no está configurado aún. El dueño del taller necesita terminar la configuración. Por ahora podés dejar tu nombre y número para que Lucas te contacte.',
+      error: 'El sistema de turnos no está disponible. Dejá tu nombre y número para que Lucas te contacte.',
     });
   }
 
@@ -80,14 +96,28 @@ async function executeTool(toolName, args, clientPhone) {
 
     if (toolName === 'create_appointment') {
       const result = await createAppointment({
-        summary:     `Turno: ${args.client_name} - ${args.car_info}`,
-        description: `Cliente: ${args.client_name}\nVehículo: ${args.car_info}`,
-        dateStr:     args.date,
-        startTime:   args.start_time,
-        endTime:     args.end_time,
-        clientPhone: args.client_phone || clientPhone,
+        client_name:  args.client_name,
+        car_info:     args.car_info,
+        date:         args.date,
+        start_time:   args.start_time,
+        end_time:     args.end_time,
+        client_phone: args.client_phone || clientPhone,
       });
       return JSON.stringify(result);
+    }
+
+    if (toolName === 'record_service_rating') {
+      const pending = getPendingReview(clientPhone);
+      if (!pending) {
+        return JSON.stringify({ success: false, error: 'No hay ninguna reseña pendiente para este cliente.' });
+      }
+      const fields = { review_done: 1 };
+      if (typeof args.rating === 'number') {
+        fields.review_rating = Math.max(1, Math.min(10, Math.round(args.rating)));
+      }
+      updateAppointment(pending.id, fields);
+      console.log(`[REVIEW] Cliente ${clientPhone} valoró el servicio:`, fields.review_rating ?? '(reseña en Google)');
+      return JSON.stringify({ success: true, recorded_rating: fields.review_rating ?? null });
     }
 
     return JSON.stringify({ error: `Tool desconocida: ${toolName}` });

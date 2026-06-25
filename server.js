@@ -15,6 +15,10 @@ const instagramRoutes = require('./routes/auth-instagram');
 const webhookInstagramRoutes = require('./routes/webhook-instagram');
 const { getInstagramStatus } = require('./instagram/instagram');
 const { startDailySummary } = require('./jobs/daily-summary');
+const { startMorningSummary } = require('./jobs/morning-summary');
+const { startReminders } = require('./jobs/reminders');
+const { startServiceCycle } = require('./jobs/service-cycle');
+const { startReviews } = require('./jobs/reviews');
 
 // ─── Express + Socket.io ────────────────────────────────────────────────────
 const app = express();
@@ -119,8 +123,12 @@ async function main() {
   console.log('[INIT] 🔄 Iniciando WhatsApp...');
   await startWhatsApp();
 
-  // 3b. Programar el resumen diario (19:00 hora Argentina)
-  startDailySummary();
+  // 3b. Programar los jobs diarios (hora Argentina)
+  startDailySummary();   // resumen de cierre — 19:00
+  startMorningSummary(); // resumen matutino (turnos de hoy + actividad de ayer) — 08:00
+  startReminders();      // recordatorio de turno al cliente — 11:00
+  startServiceCycle();   // check-in 10:00 + poller de finalización (avisa retiro al cliente)
+  startReviews();        // pedido de reseña al día siguiente del servicio (10:00) + fallback 1-10
 
   // 4. Instagram usa tokens guardados en DB, no necesita restauración de sesión
   const igStatus = getInstagramStatus();

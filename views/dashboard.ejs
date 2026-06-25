@@ -327,6 +327,22 @@
 
     <div class="card mt-4">
       <div class="card-body">
+        <h3>🧑‍🔧 Asistente de Lucas</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px;">
+          Cómo se comporta el bot cuando le escribís vos (desde el número de Lucas configurado en <strong>Turnos</strong>).
+        </p>
+        <div class="form-group">
+          <textarea id="assistant-prompt" rows="14" placeholder="Cargando prompt del asistente..."></textarea>
+        </div>
+        <div class="form-actions">
+          <button id="btn-save-assistant-prompt" class="btn btn-primary">💾 Guardar</button>
+          <span id="assistant-save-status" class="save-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-body">
         <h3>💡 Tips para el prompt</h3>
         <ul class="tips-list">
           <li>Los servicios y precios se cargan en la solapa <strong>Servicios</strong> y la IA los usa automáticamente.</li>
@@ -342,8 +358,101 @@
   <section id="tab-calendar" class="tab-content">
     <div class="page-header">
       <h2>Turnos del Taller</h2>
-      <p>Próximos turnos agendados via WhatsApp Bot</p>
+      <p>Agenda, avisos automáticos y configuración del sistema de turnos</p>
     </div>
+
+    <!-- ── Configuración de turnos y avisos ── -->
+    <div class="card">
+      <div class="card-body">
+        <h3>⚙️ Configuración de turnos y avisos</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin:8px 0 20px;">
+          Si Google Calendar está conectado, los turnos también se espejan ahí. Si no, se usa este sistema propio.
+        </p>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="cfg-lucas-number">Número de Lucas (modo asistente)
+              <small class="label-hint">Desde este número, el bot te atiende como tu asistente personal.</small>
+            </label>
+            <input type="text" id="cfg-lucas-number" placeholder="Ej: 5493411234567">
+          </div>
+          <div class="form-group">
+            <label for="cfg-capacity">Capacidad por día (autos)</label>
+            <input type="number" id="cfg-capacity" min="1" max="50" placeholder="3">
+          </div>
+          <div class="form-group">
+            <label for="cfg-slots">Horarios de entrega
+              <small class="label-hint">Separados por coma.</small>
+            </label>
+            <input type="text" id="cfg-slots" placeholder="08:00, 08:30, 09:00">
+          </div>
+          <div class="form-group">
+            <label for="cfg-review-url">Link de reseña de Google
+              <small class="label-hint">El "Escribir una reseña" del perfil del taller.</small>
+            </label>
+            <input type="text" id="cfg-review-url" placeholder="https://g.page/r/.../review">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:8px;">
+          <label>Días laborables</label>
+          <div class="workdays-row" id="workdays-row">
+            <label><input type="checkbox" id="wd-1"> Lun</label>
+            <label><input type="checkbox" id="wd-2"> Mar</label>
+            <label><input type="checkbox" id="wd-3"> Mié</label>
+            <label><input type="checkbox" id="wd-4"> Jue</label>
+            <label><input type="checkbox" id="wd-5"> Vie</label>
+            <label><input type="checkbox" id="wd-6"> Sáb</label>
+            <label><input type="checkbox" id="wd-0"> Dom</label>
+          </div>
+        </div>
+
+        <div class="toggles-grid" style="margin-top:16px;">
+          <label class="switch-row"><input type="checkbox" id="cfg-morning"><span>Resumen matutino (8:00) a Lucas</span></label>
+          <label class="switch-row"><input type="checkbox" id="cfg-checkin"><span>Check-in de servicio (10:00) con Lucas</span></label>
+          <label class="switch-row"><input type="checkbox" id="cfg-reminder"><span>Recordatorio de turno 24 hs antes al cliente</span></label>
+          <label class="switch-row"><input type="checkbox" id="cfg-review"><span>Pedido de reseña post-servicio</span></label>
+        </div>
+
+        <div class="form-actions" style="margin-top:20px;">
+          <button id="btn-save-turnos" class="btn btn-primary">💾 Guardar configuración</button>
+          <button id="btn-test-morning" class="btn btn-secondary">📤 Probar resumen matutino</button>
+          <button id="btn-test-reminders" class="btn btn-secondary">📤 Probar recordatorios</button>
+          <span id="turnos-save-status" class="save-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tabla de turnos ── -->
+    <div class="card mt-4">
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;">📋 Turnos agendados</h3>
+          <button id="btn-refresh-appointments" class="btn btn-sm btn-secondary">🔄 Actualizar</button>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="appointments-table">
+            <thead>
+              <tr>
+                <th>Día</th><th>Hora</th><th>Cliente</th><th>Vehículo</th>
+                <th>Servicio</th><th>Estado</th><th>Nota</th><th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="appointments-tbody">
+              <tr><td colspan="8" class="empty-state">Cargando turnos...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Google Calendar (opcional) ── -->
+    <div class="card mt-4">
+      <div class="card-body">
+        <h3>📅 Google Calendar (opcional)</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px;">
+          Conectalo para que los turnos también aparezcan en tu calendario de Google.
+        </p>
 
     <!-- Estado: no configurado (falta GOOGLE_CLIENT_ID en .env) -->
     <div id="calendar-no-credentials" class="card" style="display:none">
@@ -390,6 +499,9 @@
       </div>
       <div id="calendar-events" class="events-grid">
         <p class="empty-state">Cargando turnos...</p>
+      </div>
+    </div>
+
       </div>
     </div>
 

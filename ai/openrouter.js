@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { getConfig, getServices, getConversationState, saveConversationState } = require('../database/db');
+const { getConfig, getServices, getConversationState, saveConversationState, getPendingReview } = require('../database/db');
 const { TOOL_DEFINITIONS, executeTool } = require('./tools');
 const { isEnabled: supabaseEnabled, getClientProfile, upsertClientProfile } = require('../supabase/client');
 
@@ -10,7 +10,13 @@ const MAX_HISTORY_MESSAGES = 20; // Mantener últimos N mensajes para no superar
  * Llama a la API de OpenRouter con soporte de tool calling.
  * Ejecuta el loop de herramientas automáticamente hasta obtener una respuesta final.
  */
-async function callOpenRouter(messages, systemPrompt, clientPhone = null) {
+async function callOpenRouter(messages, systemPrompt, opts = {}) {
+  const {
+    clientPhone = null,
+    tools = TOOL_DEFINITIONS,
+    executeToolFn = executeTool,
+  } = opts;
+
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model  = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 
@@ -31,7 +37,7 @@ async function callOpenRouter(messages, systemPrompt, clientPhone = null) {
       {
         model,
         messages: allMessages,
-        tools: TOOL_DEFINITIONS,
+        tools,
         tool_choice: 'auto',
         max_tokens: 1024,
         temperature: 0.7,
@@ -69,7 +75,7 @@ async function callOpenRouter(messages, systemPrompt, clientPhone = null) {
       }
 
       console.log(`[AI] Ejecutando tool: ${toolName}`, args);
-      const toolResult = await executeTool(toolName, args, clientPhone);
+      const toolResult = await executeToolFn(toolName, args, clientPhone);
 
       allMessages.push({
         role: 'tool',
@@ -244,6 +250,16 @@ async function processMessage(phone, userText) {
       formatClientProfile(profile);
   }
 
+  // Reseña pendiente: si a este cliente se le pidió una reseña y aún no respondió,
+  // el bot debe captar su valoración (nota 1-10 o confirmación de reseña en Google).
+  if (getPendingReview(phone)) {
+    contextualPrompt +=
+      '\n\nRESEÑA PENDIENTE: A este cliente se le pidió hace poco que valore el servicio recibido. ' +
+      'Si en su mensaje da una nota del 1 al 10, o confirma que dejó la reseña en Google, agradecelo ' +
+      'cálidamente y registrá su valoración con la herramienta record_service_rating. Si su nota es baja ' +
+      '(1 a 6), pedí disculpas y ofrecé que Lucas lo contacte. No insistas si no quiere participar.';
+  }
+
   // Agregar mensaje al historial
   const history = [...state.history, userMessage];
 
@@ -252,7 +268,7 @@ async function processMessage(phone, userText) {
 
   let botReply;
   try {
-    botReply = await callOpenRouter(trimmedHistory, contextualPrompt, phone);
+    botReply = await callOpenRouter(trimmedHistory, contextualPrompt, { clientPhone: phone });
   } catch (err) {
     console.error('[AI] Error llamando a OpenRouter:', err.response?.data || err.message);
     botReply = 'Disculpá, tuve un problema técnico. Por favor escribí "hablar con Lucas" para atención directa o intentá de nuevo en unos minutos.';
@@ -310,4 +326,4 @@ async function simpleCompletion(systemPrompt, userPrompt) {
   }
 }
 
-module.exports = { processMessage, buildSystemPrompt, simpleCompletion };
+module.exports = { processMessage, buildSystemPrompt, simpleCompletion, callOpenRouter, currentDateLine };
