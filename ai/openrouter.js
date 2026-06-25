@@ -4,7 +4,9 @@ const { TOOL_DEFINITIONS, executeTool } = require('./tools');
 const { isEnabled: supabaseEnabled, getClientProfile, upsertClientProfile } = require('../supabase/client');
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const MAX_HISTORY_MESSAGES = 20; // Mantener últimos N mensajes para no superar el contexto
+// Ventana de historial dinámica: cliente nuevo (sin perfil) 60, recurrente 30.
+const HISTORY_NEW = 60;
+const HISTORY_RETURNING = 30;
 
 /**
  * Llama a la API de OpenRouter con soporte de tool calling.
@@ -301,6 +303,12 @@ async function processMessage(phone, input) {
 
   // Memoria de largo plazo: inyectar el perfil del cliente si existe
   const profile = await getClientProfile(phone);
+
+  // Ventana de historial: cliente NUEVO (sin perfil/resumen) → 60 mensajes;
+  // cliente que ya habló antes (tiene resumen) → 30, porque su memoria de largo
+  // plazo ya vive en el perfil y no hace falta arrastrar tanto contexto.
+  const historyLimit = profile ? HISTORY_RETURNING : HISTORY_NEW;
+
   if (profile) {
     contextualPrompt +=
       '\n\nPERFIL DEL CLIENTE (memoria de interacciones previas; usalo para personalizar el trato, ' +
@@ -321,8 +329,8 @@ async function processMessage(phone, input) {
   // Agregar mensaje al historial
   const history = [...state.history, userMessage];
 
-  // Limitar historial para no superar el contexto del modelo
-  const trimmedHistory = history.slice(-MAX_HISTORY_MESSAGES);
+  // Limitar historial según la ventana calculada (60 nuevo / 30 recurrente)
+  const trimmedHistory = history.slice(-historyLimit);
 
   // Para la llamada actual, inyectar el audio/imagen en el último mensaje.
   const apiMessages = withCurrentMedia(trimmedHistory, userText, media);
