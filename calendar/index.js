@@ -12,6 +12,7 @@ const google = require('./google-calendar');
 const local = require('./local-calendar');
 const db = require('../database/db');
 const { notifyLucas } = require('../whatsapp/notify');
+const { ensureCustomer, getInternalCustomerContext, cancelFollowups } = require('../supabase/client');
 
 /** ¿Está Google Calendar configurado (credenciales + token)? */
 function usingGoogle() {
@@ -52,6 +53,9 @@ async function createAppointment(data) {
   });
   if (!res.success) return res;
 
+  await ensureCustomer(data.client_phone, { display_name: data.client_name }).catch(() => {});
+  await cancelFollowups(data.client_phone, 'appointment_created');
+
   // Espejo en Google Calendar (no bloqueante: si falla, el turno propio queda igual)
   if (usingGoogle() && data.start_time) {
     try {
@@ -75,13 +79,21 @@ async function createAppointment(data) {
   // Aviso a Lucas (se omite si lo creó el propio Lucas a mano)
   if (data.notifyOwner !== false) {
     const tel = db.normalizePhone(data.client_phone);
+    const memory = await getInternalCustomerContext(data.client_phone);
+    const last = memory?.services?.[0];
+    const privateBrief = last
+      ? `\nAntecedente interno: ${last.service_date} — ${last.work_performed}` +
+        (last.vehicle_condition ? ` | Estado: ${last.vehicle_condition}` : '') +
+        (last.mileage ? ` | ${last.mileage} km` : '') +
+        (last.unresolved_items ? ` | Pendiente: ${last.unresolved_items}` : '')
+      : '';
     const lucasMsg =
       `🗓️ *Nuevo turno agendado*\n` +
       `Cliente: ${data.client_name || '—'}\n` +
       `Vehículo: ${data.car_info || '—'}\n` +
       (data.service ? `Servicio: ${data.service}\n` : '') +
       `Día: ${data.date}${data.start_time ? ` a las ${data.start_time} hs` : ''}\n` +
-      `Tel: ${tel}`;
+      `Tel: ${tel}${privateBrief}`;
     notifyLucas(lucasMsg).catch(() => {});
   }
 

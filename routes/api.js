@@ -3,8 +3,8 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const {
-  getConfig, setConfig,
-  getMessages, getRecentChats,
+  getConfig, setConfig, getDashboardPassword,
+  getMessages, getRecentChats, saveMessage,
   pauseContact, resumeContact, isPaused,
   getServices, addService, updateService, deleteService,
   getBlockedContacts, addBlockedContact, removeBlockedContact,
@@ -18,16 +18,17 @@ const local = require('../calendar/local-calendar');
 const { generateAndSend } = require('../jobs/daily-summary');
 const { generateAndSend: morningSummary } = require('../jobs/morning-summary');
 const { sendReminders } = require('../jobs/reminders');
+const { logMessage, cancelFollowups } = require('../supabase/client');
+const { queueFollowup } = require('../jobs/followups');
 
 // Claves de configuración de turnos/avisos editables desde el dashboard.
 const TURNOS_KEYS = [
   'lucas_number', 'cal_capacity_per_day', 'cal_slots', 'cal_workdays', 'google_review_url',
   'morning_summary_enabled', 'checkin_enabled', 'reminder_enabled', 'review_enabled',
+  'followup_enabled',
 ];
 
 const TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH || path.join(__dirname, '..', 'token.json');
-
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'lc2024';
 
 // ─── Middleware de auth para la API ────────────────────────────────────────
 function requireApiAuth(req, res, next) {
@@ -64,9 +65,12 @@ router.post('/chats/:phone/send', requireApiAuth, async (req, res) => {
   try {
     if (phone.startsWith('ig:')) {
       await sendInstagramMessage(phone.replace('ig:', ''), text.trim());
+      saveMessage(phone, 'outgoing', text.trim());
+      logMessage(phone, 'outgoing', text.trim());
     } else {
       await sendMessage(phone, text.trim());
     }
+    await queueFollowup(phone, text.trim(), 'manual');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -74,8 +78,9 @@ router.post('/chats/:phone/send', requireApiAuth, async (req, res) => {
 });
 
 // ─── Pausa / Reanuda bot por número ───────────────────────────────────────
-router.post('/chats/:phone/pause', requireApiAuth, (req, res) => {
+router.post('/chats/:phone/pause', requireApiAuth, async (req, res) => {
   pauseContact(req.params.phone);
+  await cancelFollowups(req.params.phone, 'paused_by_lucas');
   global.io?.emit('chat:paused', { phone: req.params.phone });
   res.json({ success: true, paused: true });
 });
@@ -254,11 +259,19 @@ router.post('/turnos/test-reminders', requireApiAuth, async (req, res) => {
 // ─── Auth API ───────────────────────────────────────────────────────────────
 router.post('/auth/login', (req, res) => {
   const { password } = req.body;
-  if (password === DASHBOARD_PASSWORD) {
+  if (password === getDashboardPassword()) {
     req.session.authenticated = true;
     return res.json({ success: true });
   }
   res.status(401).json({ error: 'Contraseña incorrecta' });
+});
+
+router.post('/auth/password', requireApiAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (currentPassword !== getDashboardPassword()) return res.status(400).json({ error: 'La contraseña actual no coincide.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+  setConfig('dashboard_password', newPassword);
+  res.json({ success: true });
 });
 
 module.exports = router;

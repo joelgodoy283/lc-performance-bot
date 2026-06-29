@@ -15,7 +15,8 @@ const { saveMessage, isPaused, pauseContact, isBlocked } = require('../database/
 const { processMessage } = require('../ai/openrouter');
 const { processAssistantMessage } = require('../ai/assistant');
 const { isLucas } = require('./notify');
-const { logMessage } = require('../supabase/client');
+const { logMessage, cancelFollowups } = require('../supabase/client');
+const { queueFollowup } = require('../jobs/followups');
 
 const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, '..', 'sessions');
 
@@ -144,6 +145,7 @@ async function startWhatsApp() {
       // Guardar en DB y emitir al dashboard (placeholder legible para los medios)
       saveMessage(phone, 'incoming', logText);
       logMessage(phone, 'incoming', logText); // historial de largo plazo (Supabase)
+      await cancelFollowups(phone, 'customer_replied');
       global.io?.emit('chat:new_message', { phone, direction: 'incoming', content: logText, timestamp: new Date().toISOString() });
 
       // ─── Modo asistente: si escribe Lucas, lo atiende su asistente, no el bot de clientes
@@ -188,6 +190,7 @@ async function startWhatsApp() {
       try {
         const reply = await processMessage(phone, content);
         await sendMessage(phone, reply);
+        await queueFollowup(phone, reply);
       } catch (err) {
         console.error('[WA] Error procesando mensaje con IA:', err.message);
         await sendMessage(phone, 'Lo siento, tuve un error técnico. Por favor escribí "hablar con Lucas" para atención directa.');

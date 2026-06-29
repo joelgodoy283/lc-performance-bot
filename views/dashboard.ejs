@@ -352,6 +352,18 @@
         </ul>
       </div>
     </div>
+
+    <div class="card mt-4">
+      <div class="card-body">
+        <h3>🔐 Contraseña del panel</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px;">Lucas puede cambiar su acceso. Si la olvida, el administrador puede generar una contraseña temporal desde el servidor.</p>
+        <div class="form-grid">
+          <div class="form-group"><label for="current-password">Contraseña actual</label><input type="password" id="current-password" autocomplete="current-password"></div>
+          <div class="form-group"><label for="new-password">Nueva contraseña (mínimo 8 caracteres)</label><input type="password" id="new-password" autocomplete="new-password"></div>
+        </div>
+        <div class="form-actions"><button id="btn-change-password" class="btn btn-primary">Cambiar contraseña</button></div>
+      </div>
+    </div>
   </section>
 
   <!-- ── TAB: Turnos / Calendar ─────────────────────── -->
@@ -412,6 +424,7 @@
           <label class="switch-row"><input type="checkbox" id="cfg-checkin"><span>Check-in de servicio (10:00) con Lucas</span></label>
           <label class="switch-row"><input type="checkbox" id="cfg-reminder"><span>Recordatorio de turno 24 hs antes al cliente</span></label>
           <label class="switch-row"><input type="checkbox" id="cfg-review"><span>Pedido de reseña post-servicio</span></label>
+          <label class="switch-row"><input type="checkbox" id="cfg-followup"><span>Seguimiento si no responde (máximo 2 intentos)</span></label>
         </div>
 
         <div class="form-actions" style="margin-top:20px;">

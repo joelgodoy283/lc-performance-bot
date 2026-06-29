@@ -19,6 +19,7 @@ const { startMorningSummary } = require('./jobs/morning-summary');
 const { startReminders } = require('./jobs/reminders');
 const { startServiceCycle } = require('./jobs/service-cycle');
 const { startReviews } = require('./jobs/reviews');
+const { startFollowups } = require('./jobs/followups');
 
 // ─── Express + Socket.io ────────────────────────────────────────────────────
 const app = express();
@@ -117,7 +118,7 @@ async function main() {
   // 2. Arrancar servidor HTTP
   await new Promise((resolve) => server.listen(PORT, resolve));
   console.log(`[INIT] ✅ Servidor web en http://localhost:${PORT}`);
-  console.log(`[INIT]    Contraseña dashboard: ${process.env.DASHBOARD_PASSWORD || 'lc2024'}`);
+  console.log('[INIT]    Dashboard protegido y listo');
 
   // 3. Iniciar conexión WhatsApp (después del servidor para que Socket.io esté listo)
   console.log('[INIT] 🔄 Iniciando WhatsApp...');
@@ -129,6 +130,8 @@ async function main() {
   startReminders();      // recordatorio de turno al cliente — 11:00
   startServiceCycle();   // check-in 10:00 + poller de finalización (avisa retiro al cliente)
   startReviews();        // pedido de reseña al día siguiente del servicio (10:00) + fallback 1-10
+
+  startFollowups();
 
   // 4. Instagram usa tokens guardados en DB, no necesita restauración de sesión
   const igStatus = getInstagramStatus();

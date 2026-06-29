@@ -79,3 +79,12 @@ Hacé backup de ambos periódicamente.
   `credentials.json` están en `.gitignore`.
 - El resumen diario se envía al número configurado en *Configurar IA* a las
   19:00 hora Argentina. El destino debe ser **distinto** al número del bot.
+
+## Memoria, seguimientos y acceso
+
+- Supabase conserva clientes, vehículos, trabajos realizados, estado del auto y seguimientos pendientes.
+- Los antecedentes de servicio son privados: se muestran a Lucas al recibir un nuevo turno, nunca al cliente.
+- Si una respuesta termina con una pregunta y el cliente no contesta, se programa un aviso a las 3 horas (dentro del horario del taller) y un último aviso el siguiente día hábil. Cualquier respuesta, pausa o turno creado cancela la secuencia.
+- El prompt guardado en **Configurar IA** es la autoridad principal; los datos automáticos solo agregan contexto.
+- Lucas cambia la contraseña desde **Configurar IA → Contraseña del panel**. Recuperación administrativa en el VPS: `node scripts/reset-dashboard-password.js` (genera una temporal) o `node scripts/reset-dashboard-password.js NuevaClaveSegura`.
+- La estructura de Supabase está en `supabase/migrations/20260628_customer_memory_and_followups.sql`.

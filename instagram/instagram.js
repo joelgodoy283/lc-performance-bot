@@ -1,6 +1,8 @@
 const axios = require('axios');
 const { saveMessage, isPaused, pauseContact, getConfig, setConfig } = require('../database/db');
 const { processMessage } = require('../ai/openrouter');
+const { logMessage, cancelFollowups } = require('../supabase/client');
+const { queueFollowup } = require('../jobs/followups');
 
 const GRAPH = 'https://graph.facebook.com/v20.0';
 
@@ -135,7 +137,9 @@ async function handleWebhookMessage(senderId, text) {
 
   console.log(`[IG] DM de ${senderId}: ${text.substring(0, 80)}`);
 
-  saveMessage(igPhone, 'in', text);
+  saveMessage(igPhone, 'incoming', text);
+  logMessage(igPhone, 'incoming', text);
+  await cancelFollowups(igPhone, 'customer_replied');
   global.io?.emit('chat:new_message', {
     phone: igPhone, direction: 'in', content: text, timestamp: new Date().toISOString(),
   });
@@ -145,7 +149,8 @@ async function handleWebhookMessage(senderId, text) {
     pauseContact(igPhone);
     const ack = 'Entendido, le aviso a Lucas para que te atienda personalmente. Un momento 🙏';
     await sendInstagramMessage(senderId, ack);
-    saveMessage(igPhone, 'out', ack);
+    saveMessage(igPhone, 'outgoing', ack);
+    logMessage(igPhone, 'outgoing', ack);
     global.io?.emit('chat:new_message', { phone: igPhone, direction: 'out', content: ack, timestamp: new Date().toISOString() });
     global.io?.emit('chat:paused', { phone: igPhone });
     global.io?.emit('notification', { type: 'handoff', phone: igPhone });
@@ -158,7 +163,9 @@ async function handleWebhookMessage(senderId, text) {
     const reply = await processMessage(igPhone, text);
     if (reply) {
       await sendInstagramMessage(senderId, reply);
-      saveMessage(igPhone, 'out', reply);
+      saveMessage(igPhone, 'outgoing', reply);
+      logMessage(igPhone, 'outgoing', reply);
+      await queueFollowup(igPhone, reply);
       global.io?.emit('chat:new_message', { phone: igPhone, direction: 'out', content: reply, timestamp: new Date().toISOString() });
     }
   } catch (err) {

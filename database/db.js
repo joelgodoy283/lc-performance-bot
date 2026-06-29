@@ -245,6 +245,7 @@ async function initDB() {
   seedConfig('review_enabled', 'true');              // pedido de reseña post-servicio
   seedConfig('morning_summary_enabled', 'true');     // resumen matutino (8:00) a Lucas
   seedConfig('checkin_enabled', 'true');             // check-in de servicio (10:00) con Lucas
+  seedConfig('followup_enabled', 'true');
   seedConfig('assistant_prompt', DEFAULT_ASSISTANT_PROMPT); // prompt del modo asistente de Lucas
 
   console.log('[DB] ✅ Base de datos inicializada correctamente');
@@ -269,6 +270,10 @@ function setConfig(key, value) {
   } else {
     run('INSERT INTO config (key, value) VALUES (?, ?)', [key, value]);
   }
+}
+
+function getDashboardPassword() {
+  return getConfig('dashboard_password') || process.env.DASHBOARD_PASSWORD || 'lc2024';
 }
 
 /** Inserta un valor de config SOLO si la clave no existe (no pisa lo que cargó Lucas). */
@@ -563,7 +568,7 @@ function normalizePhone(jidOrNumber) {
 module.exports = {
   DEFAULT_PROMPT,
   initDB, getDB, saveDB,
-  getConfig, setConfig,
+  getConfig, setConfig, getDashboardPassword,
   saveMessage, getMessages, getMessagesSince, getMessagesBetween, getRecentChats,
   pauseContact, resumeContact, isPaused,
   getConversationState, saveConversationState,

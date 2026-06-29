@@ -14,6 +14,7 @@ const {
 const cal = require('../calendar');
 const local = require('../calendar/local-calendar');
 const { callOpenRouter, currentDateLine, normalizeInput, withCurrentMedia } = require('./openrouter');
+const { recordServiceHistory, getInternalCustomerContext } = require('../supabase/client');
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const MAX_HISTORY_MESSAGES = 20;
@@ -26,7 +27,10 @@ function buildAssistantPrompt() {
   return `${base}
 
 FECHA Y HORA ACTUAL:
-Hoy es ${texto}. En ISO: ${iso}. Usá SIEMPRE esta fecha para interpretar "hoy", "mañana", "el viernes", etc., y pasá las fechas a las herramientas en formato YYYY-MM-DD.`;
+Hoy es ${texto}. En ISO: ${iso}. Usá SIEMPRE esta fecha para interpretar "hoy", "mañana", "el viernes", etc., y pasá las fechas a las herramientas en formato YYYY-MM-DD.
+
+MEMORIA INTERNA DEL TALLER:
+Cuando Lucas informe un trabajo ya realizado, el estado en que ingresó el vehículo, kilometraje o pendientes, registralo con record_service_history. Esa información es privada: nunca se envía al cliente. Cuando un cliente recurrente saque otro turno, consultá get_customer_history y resumile a Lucas los antecedentes relevantes.`;
 }
 
 // ─── Herramientas del asistente ───────────────────────────────────────────────
@@ -187,6 +191,26 @@ const ASSISTANT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'record_service_history',
+      description: 'Guarda memoria interna privada de un trabajo confirmado por Lucas y del estado del auto.',
+      parameters: { type: 'object', properties: {
+        appointment_id: { type: 'number' }, client_phone: { type: 'string' }, customer_name: { type: 'string' },
+        vehicle: { type: 'string' }, service_date: { type: 'string' }, work_performed: { type: 'string' },
+        vehicle_condition: { type: 'string' }, mileage: { type: 'number' }, unresolved_items: { type: 'string' },
+      }, required: ['work_performed'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_customer_history',
+      description: 'Consulta antecedentes internos para informárselos únicamente a Lucas.',
+      parameters: { type: 'object', properties: { appointment_id: { type: 'number' }, client_phone: { type: 'string' } }, required: [] },
+    },
+  },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -277,6 +301,23 @@ async function sendToLucasAndRemember(text) {
 
 async function executeAssistantTool(toolName, args) {
   try {
+    if (toolName === 'record_service_history') {
+      const appt = args.appointment_id ? getAppointmentById(args.appointment_id) : null;
+      const contactKey = args.client_phone || appt?.client_phone;
+      if (!contactKey) return JSON.stringify({ success: false, error: 'Necesito el teléfono o el id del turno.' });
+      return JSON.stringify(await recordServiceHistory({
+        contactKey, customerName: args.customer_name || appt?.client_name,
+        vehicleLabel: args.vehicle || appt?.car_info, serviceDate: args.service_date,
+        workPerformed: args.work_performed, vehicleCondition: args.vehicle_condition,
+        mileage: args.mileage, unresolvedItems: args.unresolved_items, appointmentId: appt?.id || args.appointment_id,
+      }));
+    }
+    if (toolName === 'get_customer_history') {
+      const appt = args.appointment_id ? getAppointmentById(args.appointment_id) : null;
+      const contactKey = args.client_phone || appt?.client_phone;
+      if (!contactKey) return JSON.stringify({ success: false, error: 'Necesito el teléfono o el id del turno.' });
+      return JSON.stringify({ success: true, history: await getInternalCustomerContext(contactKey) });
+    }
     if (toolName === 'list_appointments') {
       const from = args.date || local.todayAR();
       const to = args.date_to || from;
