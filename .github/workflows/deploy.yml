@@ -1,0 +1,39 @@
+name: Deploy LC Performance Bot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: lc-bot-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy en VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -eu
+            cd /docker/lc-bot/app
+            test -z "$(git status --porcelain)"
+            git fetch origin main
+            git pull --ff-only origin main
+            cd /docker/lc-bot
+            docker compose build lc-bot
+            docker compose up -d --no-deps lc-bot
+            for attempt in 1 2 3 4 5 6; do
+              if curl -fsS http://127.0.0.1:3000/login >/dev/null; then
+                exit 0
+              fi
+              sleep 5
+            done
+            docker logs --tail 100 lc-bot
+            exit 1
