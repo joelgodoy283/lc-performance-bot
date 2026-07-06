@@ -244,7 +244,32 @@ router.get('/appointments', requireApiAuth, (req, res) => {
 
 router.post('/appointments/:id/cancel', requireApiAuth, async (req, res) => {
   try {
-    const result = await cal.cancelAppointment(parseInt(req.params.id));
+    const id = parseInt(req.params.id);
+    const appt = db.getAppointmentById(id);
+    const result = await cal.cancelAppointment(id);
+    if (!result.success) return res.json(result);
+
+    // Si el dashboard pide notificar al cliente
+    if (req.body.notify_client && appt) {
+      try {
+        const { sendMessage, getConnectionState } = require('../whatsapp/baileys');
+        const { recipientJid, prettyDate } = require('../whatsapp/jid-helper');
+        const jid = recipientJid(appt.client_phone);
+        if (jid && getConnectionState().status === 'connected') {
+          const nombre = appt.client_name ? ' ' + appt.client_name : '';
+          const fecha = appt.date ? prettyDate(appt.date) : '';
+          const hora = appt.time ? ' a las ' + appt.time + ' hs' : '';
+          const detalle = fecha ? ' para el ' + fecha + hora : '';
+          const msg = 'Hola' + nombre + ', tu turno en LC Performance' + detalle + ' fue cancelado.' + '\nSi querés reagendar, escribime y coordinamos otro día y horario.' + '\n¡Saludos!';
+          await sendMessage(jid, msg).catch(() => {});
+          db.saveMessage(jid, 'outgoing', msg);
+          global.io?.emit('chat:message', { phone: jid, direction: 'outgoing', content: msg, timestamp: new Date().toISOString() });
+        }
+      } catch (err) {
+        console.error('[API] No se pudo notificar cancelación:', err.message);
+      }
+    }
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

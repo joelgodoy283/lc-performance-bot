@@ -809,12 +809,21 @@ async function loadAppointments() {
 }
 
 async function cancelAppointment(id) {
-  if (!confirm('¿Cancelar este turno? Se le avisará al cliente y se le ofrecerá reagendar.')) return;
-  const res = await apiFetch(`/api/appointments/${id}/cancel`, { method: 'POST' });
+  const choice = confirm('¿Querés avisarle al cliente que se canceló el turno?\\n\\nOK = Sí, avisarle\\nCancelar = Solo cancelar, sin avisar');
+  const notifyClient = !!choice;
+  const res = await apiFetch(`/api/appointments/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notify_client: notifyClient }),
+  });
   if (!res) return;
   const r = await res.json();
-  if (r.success) { showToast('Turno cancelado', 'message'); loadAppointments(); }
-  else showToast('❌ ' + (r.message || r.error || 'No se pudo cancelar'), 'error');
+  if (r.success) {
+    showToast(notifyClient ? 'Turno cancelado y cliente notificado' : 'Turno cancelado (sin aviso al cliente)', 'message');
+    loadAppointments();
+  } else {
+    showToast('❌ ' + (r.message || r.error || 'No se pudo cancelar'), 'error');
+  }
 }
 
 document.getElementById('btn-refresh-appointments')?.addEventListener('click', loadAppointments);
