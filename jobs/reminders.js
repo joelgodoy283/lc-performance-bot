@@ -11,17 +11,7 @@ const { getConfig, getAppointmentsBetween, updateAppointment } = require('../dat
 const local = require('../calendar/local-calendar');
 
 const TZ = 'America/Argentina/Buenos_Aires';
-
-function recipientJid(contactKey) {
-  const raw = String(contactKey || '').trim();
-  if (/@(s\.whatsapp\.net|c\.us|lid)$/i.test(raw)) return raw;
-  return `${raw}@s.whatsapp.net`;
-}
-
-function prettyDate(dateStr) {
-  const d = new Date(`${dateStr}T12:00:00-03:00`);
-  return new Intl.DateTimeFormat('es-AR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' }).format(d);
-}
+const { recipientJid, prettyDate } = require('../whatsapp/jid-helper');
 
 function reminderText(appt) {
   return (

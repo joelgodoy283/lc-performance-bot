@@ -153,6 +153,31 @@ async function cancelAppointment(id) {
       console.error('[CAL] No se pudo borrar el evento de Google:', err.message);
     }
   }
+
+  // Avisar al cliente que su turno fue cancelado
+  try {
+    const { sendMessage, getConnectionState } = require('../whatsapp/baileys');
+    const { recipientJid, prettyDate } = require('../whatsapp/jid-helper');
+    const jid = recipientJid(appt.client_phone);
+    if (jid && getConnectionState().status === 'connected') {
+      const nombre = appt.client_name ? ` ${appt.client_name}` : '';
+      const fecha = appt.date ? prettyDate(appt.date) : '';
+      const hora = appt.time ? ` a las ${appt.time} hs` : '';
+      const detalle = fecha ? ` para el ${fecha}${hora}` : '';
+      const msg =
+        `Hola${nombre}, tu turno en LC Performance${detalle} fue cancelado.` +
+        `
+Si querés reagendar, escribime y coordinamos otro día y horario.` +
+        `
+¡Saludos!`;
+      await sendMessage(jid, msg).catch(() => {});
+      db.saveMessage(jid, 'outgoing', msg);
+      global.io?.emit('chat:message', { phone: jid, direction: 'outgoing', content: msg, timestamp: new Date().toISOString() });
+    }
+  } catch (err) {
+    console.error('[CAL] No se pudo notificar cancelación al cliente:', err.message);
+  }
+
   return { success: true, appointment: db.getAppointmentById(id) };
 }
 

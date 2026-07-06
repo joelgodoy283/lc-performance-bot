@@ -16,12 +16,7 @@ const local = require('../calendar/local-calendar');
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const FALLBACK_HOURS = 5;
-
-function recipientJid(contactKey) {
-  const raw = String(contactKey || '').trim();
-  if (/@(s\.whatsapp\.net|c\.us|lid)$/i.test(raw)) return raw;
-  return `${raw}@s.whatsapp.net`;
-}
+const { recipientJid } = require('../whatsapp/jid-helper');
 
 function googleReviewText(appt, url) {
   return (
