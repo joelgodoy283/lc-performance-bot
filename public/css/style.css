@@ -275,6 +275,13 @@ body {
   overflow: hidden;
 }
 
+.chat-window-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .chat-list-search {
   padding: 12px;
   border-bottom: 1px solid var(--border);
@@ -363,6 +370,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
 .chat-header {
