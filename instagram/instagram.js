@@ -141,7 +141,7 @@ async function handleWebhookMessage(senderId, text) {
   logMessage(igPhone, 'incoming', text);
   await cancelFollowups(igPhone, 'customer_replied');
   global.io?.emit('chat:new_message', {
-    phone: igPhone, direction: 'in', content: text, timestamp: new Date().toISOString(),
+    phone: igPhone, direction: 'incoming', content: text, timestamp: new Date().toISOString(),
   });
 
   const lower = text.toLowerCase().trim();
@@ -151,7 +151,7 @@ async function handleWebhookMessage(senderId, text) {
     await sendInstagramMessage(senderId, ack);
     saveMessage(igPhone, 'outgoing', ack);
     logMessage(igPhone, 'outgoing', ack);
-    global.io?.emit('chat:new_message', { phone: igPhone, direction: 'out', content: ack, timestamp: new Date().toISOString() });
+    global.io?.emit('chat:new_message', { phone: igPhone, direction: 'outgoing', content: ack, timestamp: new Date().toISOString() });
     global.io?.emit('chat:paused', { phone: igPhone });
     global.io?.emit('notification', { type: 'handoff', phone: igPhone });
     return;
@@ -166,7 +166,7 @@ async function handleWebhookMessage(senderId, text) {
       saveMessage(igPhone, 'outgoing', reply);
       logMessage(igPhone, 'outgoing', reply);
       await queueFollowup(igPhone, reply);
-      global.io?.emit('chat:new_message', { phone: igPhone, direction: 'out', content: reply, timestamp: new Date().toISOString() });
+      global.io?.emit('chat:new_message', { phone: igPhone, direction: 'outgoing', content: reply, timestamp: new Date().toISOString() });
     }
   } catch (err) {
     console.error('[IG] Error IA:', err.message);

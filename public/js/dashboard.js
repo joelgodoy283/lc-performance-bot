@@ -222,9 +222,22 @@ async function openChat(phone) {
   document.getElementById('chat-phone-display').textContent = formatPhone(phone);
 
   const res = await apiFetch(`/api/chats/${encodeURIComponent(phone)}/messages`);
-  if (!res) return;
+  const container = document.getElementById('chat-messages');
+  if (!res) {
+    if (container) container.innerHTML = '<p class="empty-state">Error al cargar mensajes</p>';
+    return;
+  }
 
-  const { messages, paused } = await res.json();
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (err) {
+    console.error('Error leyendo mensajes:', err);
+    if (container) container.innerHTML = '<p class="empty-state">Error al leer mensajes</p>';
+    return;
+  }
+
+  const { messages = [], paused } = data;
   if (paused) pausedPhones.add(phone); else pausedPhones.delete(phone);
 
   renderMessages(messages);
@@ -233,32 +246,55 @@ async function openChat(phone) {
 
 function renderMessages(messages) {
   const container = document.getElementById('chat-messages');
+  if (!container) return;
+  if (!Array.isArray(messages)) {
+    container.innerHTML = '<p class="empty-state">Formato de mensajes inválido</p>';
+    return;
+  }
   if (!messages.length) {
     container.innerHTML = '<p class="empty-state">Sin mensajes</p>';
     return;
   }
-  container.innerHTML = messages.map(msg => `
-    <div>
-      <div class="message-bubble ${msg.direction}">
-        ${escapeHtml(msg.content)}
-      </div>
-      <div class="message-time">${formatDate(msg.timestamp)}</div>
-    </div>`).join('');
+  try {
+    container.innerHTML = messages.map(msg => {
+      const direction = normalizeMessageDirection(msg.direction);
+      return `
+        <div class="message-row ${direction}">
+          <div class="message-bubble ${direction}">
+            ${escapeHtml(msg.content ?? '')}
+          </div>
+          <div class="message-time">${formatDate(msg.timestamp)}</div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Error renderizando mensajes:', err, messages);
+    container.innerHTML = '<p class="empty-state">No se pudo mostrar el historial de este chat</p>';
+  }
   container.scrollTop = container.scrollHeight;
 }
 
 function addMessageToWindow(phone, direction, content, timestamp) {
   if (phone !== currentPhone) return;
   const container = document.getElementById('chat-messages');
+  if (!container) return;
   const placeholder = container.querySelector('.empty-state');
   if (placeholder) placeholder.remove();
 
+  const cleanDirection = normalizeMessageDirection(direction);
   const div = document.createElement('div');
+  div.className = `message-row ${cleanDirection}`;
   div.innerHTML = `
-    <div class="message-bubble ${direction}">${escapeHtml(content)}</div>
+    <div class="message-bubble ${cleanDirection}">${escapeHtml(content ?? '')}</div>
     <div class="message-time">${formatDate(timestamp)}</div>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+}
+
+function normalizeMessageDirection(direction) {
+  if (direction === 'in') return 'incoming';
+  if (direction === 'out') return 'outgoing';
+  if (direction === 'incoming' || direction === 'outgoing') return direction;
+  return 'incoming';
 }
 
 // ─── CHAT: ACCIONES ──────────────────────────────────
@@ -843,8 +879,8 @@ function formatPhone(jid) {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 }
 
 function formatDate(ts) {

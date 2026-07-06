@@ -4,6 +4,7 @@
  */
 const { getAvailability, createAppointment, isConfigured } = require('../calendar');
 const { getPendingReview, updateAppointment } = require('../database/db');
+const { validateAppointmentChannelRules } = require('./channel-rules');
 
 // ─── Definición de tools para OpenRouter (formato OpenAI) ─────────────────
 
@@ -55,7 +56,11 @@ const TOOL_DEFINITIONS = [
           },
           client_phone: {
             type: 'string',
-            description: 'NO completar: el sistema adjunta automáticamente el número de WhatsApp del cliente. Dejalo vacío.',
+            description: 'Número de WhatsApp del cliente. Si el cliente escribe por WhatsApp, dejalo vacío porque el sistema lo adjunta automáticamente. Si escribe por Instagram, es obligatorio pedirlo y completarlo para poder enviar recordatorios.',
+          },
+          rosario_location_confirmed: {
+            type: 'boolean',
+            description: 'true solo si el cliente ya confirmó que puede acercarse a LC Performance en Rosario o que está/vive en Rosario aunque su número no sea 549341...',
           },
         },
         required: ['client_name', 'car_info', 'date', 'start_time', 'end_time'],
@@ -81,7 +86,7 @@ const TOOL_DEFINITIONS = [
 
 // ─── Ejecutor de tools ────────────────────────────────────────────────────
 
-async function executeTool(toolName, args, clientPhone) {
+async function executeTool(toolName, args, clientPhone, context = {}) {
   if (!isConfigured()) {
     return JSON.stringify({
       error: 'El sistema de turnos no está disponible. Dejá tu nombre y número para que Lucas te contacte.',
@@ -95,13 +100,23 @@ async function executeTool(toolName, args, clientPhone) {
     }
 
     if (toolName === 'create_appointment') {
+      const channelValidation = validateAppointmentChannelRules({
+        channelPhone: clientPhone,
+        providedPhone: args.client_phone,
+        rosarioLocationConfirmed: Boolean(args.rosario_location_confirmed || context.rosarioLocationConfirmed),
+      });
+
+      if (!channelValidation.ok) {
+        return JSON.stringify({ success: false, error: channelValidation.message, code: channelValidation.code });
+      }
+
       const result = await createAppointment({
         client_name:  args.client_name,
         car_info:     args.car_info,
         date:         args.date,
         start_time:   args.start_time,
         end_time:     args.end_time,
-        client_phone: args.client_phone || clientPhone,
+        client_phone: channelValidation.phone,
       });
       return JSON.stringify(result);
     }

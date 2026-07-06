@@ -240,6 +240,7 @@ async function initDB() {
   seedConfig('cal_slots', '08:00,08:30,09:00');     // horarios de entrega ofrecidos
   seedConfig('cal_workdays', '1,2,3,4,5,6');         // días laborables (0=Dom ... 6=Sáb)
   seedConfig('lucas_number', '');                    // número de WhatsApp de Lucas (modo asistente)
+  seedConfig('business_address', 'Bv. Seguí 2122, Rosario – Santa Fe (CP 2000).'); // dirección del taller
   seedConfig('google_review_url', '');               // link "Escribir una reseña" de Google
   seedConfig('reminder_enabled', 'true');            // recordatorio de turno 24h al cliente
   seedConfig('review_enabled', 'true');              // pedido de reseña post-servicio

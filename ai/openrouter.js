@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { getConfig, getServices, getConversationState, saveConversationState, getPendingReview } = require('../database/db');
 const { TOOL_DEFINITIONS, executeTool } = require('./tools');
+const { buildChannelRulesPrompt, detectRosarioConfirmation } = require('./channel-rules');
 const { isEnabled: supabaseEnabled, getClientProfile, upsertClientProfile, getCustomerSafeContext, ensureCustomer } = require('../supabase/client');
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -18,6 +19,7 @@ async function callOpenRouter(messages, systemPrompt, opts = {}) {
     clientPhone = null,
     tools = TOOL_DEFINITIONS,
     executeToolFn = executeTool,
+    toolContext = {},
   } = opts;
 
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -78,7 +80,7 @@ async function callOpenRouter(messages, systemPrompt, opts = {}) {
       }
 
       console.log(`[AI] Ejecutando tool: ${toolName}`, args);
-      const toolResult = await executeToolFn(toolName, args, clientPhone);
+      const toolResult = await executeToolFn(toolName, args, clientPhone, toolContext);
 
       allMessages.push({
         role: 'tool',
@@ -175,10 +177,11 @@ function withCurrentMedia(messages, text, media) {
  * Precios: por defecto la IA NO informa precios (los servicios se inyectan sin
  * monto). Se puede habilitar desde el dashboard con la config `share_prices`.
  */
-function buildSystemPrompt() {
+function buildSystemPrompt({ channelPhone = '', rosarioLocationConfirmed = false } = {}) {
   const base = getConfig('ai_prompt') || 'Eres un asistente de taller mecánico.';
   const sharePrices = getConfig('share_prices') === 'true';
   const services = getServices();
+  const businessAddress = (getConfig('business_address') || '').trim();
 
   const { texto: fechaTexto, iso: fechaIso } = currentDateLine();
 
@@ -200,6 +203,14 @@ ${base}
 ${dateBlock}
 
 ${priceRule}`;
+
+  prompt += `
+
+${buildChannelRulesPrompt({
+    channelPhone,
+    businessAddress,
+    rosarioLocationConfirmed,
+  })}`;
 
   if (services.length) {
     const lines = services.map((s) => {
@@ -293,8 +304,17 @@ async function maybeUpdateClientProfile(phone, history) {
  */
 async function processMessage(phone, input) {
   const { text: userText, media, logText } = normalizeInput(input);
-  const systemPrompt = buildSystemPrompt();
   const state = getConversationState(phone);
+  const conversationDetail = { ...(state.car_info || state.detail || {}) };
+
+  if (!conversationDetail.rosario_location_confirmed && detectRosarioConfirmation(userText)) {
+    conversationDetail.rosario_location_confirmed = true;
+  }
+
+  const systemPrompt = buildSystemPrompt({
+    channelPhone: phone,
+    rosarioLocationConfirmed: Boolean(conversationDetail.rosario_location_confirmed),
+  });
 
   // En el historial guardamos un texto legible (placeholder para audios/imágenes);
   // el medio en sí solo se manda en la llamada actual, no se persiste ni se reenvía.
@@ -344,7 +364,10 @@ async function processMessage(phone, input) {
 
   let botReply;
   try {
-    botReply = await callOpenRouter(apiMessages, contextualPrompt, { clientPhone: phone });
+    botReply = await callOpenRouter(apiMessages, contextualPrompt, {
+      clientPhone: phone,
+      toolContext: { rosarioLocationConfirmed: Boolean(conversationDetail.rosario_location_confirmed) },
+    });
   } catch (err) {
     console.error('[AI] Error llamando a OpenRouter:', err.response?.data || err.message);
     botReply = media
@@ -358,7 +381,7 @@ async function processMessage(phone, input) {
     { role: 'assistant', content: botReply },
   ];
 
-  saveConversationState(phone, updatedHistory, state.step, state.car_info, false);
+  saveConversationState(phone, updatedHistory, state.step, conversationDetail, false);
 
   // Actualizar el perfil del cliente en segundo plano (no bloquea la respuesta)
   maybeUpdateClientProfile(phone, updatedHistory).catch(() => {});

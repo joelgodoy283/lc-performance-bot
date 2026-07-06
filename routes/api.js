@@ -67,6 +67,12 @@ router.post('/chats/:phone/send', requireApiAuth, async (req, res) => {
       await sendInstagramMessage(phone.replace('ig:', ''), text.trim());
       saveMessage(phone, 'outgoing', text.trim());
       logMessage(phone, 'outgoing', text.trim());
+      global.io?.emit('chat:new_message', {
+        phone,
+        direction: 'outgoing',
+        content: text.trim(),
+        timestamp: new Date().toISOString(),
+      });
     } else {
       await sendMessage(phone, text.trim());
     }
