@@ -51,7 +51,7 @@ function appointmentPhone({ channelPhone, providedPhone }) {
   const provided = normalizePhone(providedPhone);
   if (provided) return provided;
   if (isInstagramChannel(channelPhone)) return '';
-  if (isWhatsAppLid(channelPhone)) return String(channelPhone);
+  if (isWhatsAppLid(channelPhone)) return '';
   return normalizePhone(channelPhone);
 }
 
@@ -63,6 +63,14 @@ function validateAppointmentChannelRules({ channelPhone, providedPhone, rosarioL
       ok: false,
       code: 'missing_whatsapp_phone_for_instagram',
       message: 'Antes de agendar desde Instagram, pedile al cliente su número de WhatsApp para poder enviarle el recordatorio del turno.',
+    };
+  }
+
+  if (isWhatsAppLid(channelPhone) && !finalPhone) {
+    return {
+      ok: false,
+      code: 'missing_real_phone_for_whatsapp_lid',
+      message: 'Antes de agendar, pedile al cliente su número de WhatsApp real para cargar bien el turno, el recordatorio y su historial. No menciones identificadores técnicos ni @lid.',
     };
   }
 
@@ -87,7 +95,8 @@ function buildChannelRulesPrompt({ channelPhone, businessAddress = '', rosarioLo
   let prompt = `REGLAS CRÍTICAS DE CANAL Y UBICACIÓN:
 - LC Performance está en Rosario, Santa Fe.${addressLine}
 - En el PRIMER mensaje de bienvenida, mencioná siempre que el taller está en Rosario, Santa Fe${businessAddress ? ' y la dirección' : ''}, sin cambiar el nombre/persona del asistente definido en el prompt oficial del panel.
-- No pidas teléfono cuando el cliente escribe por WhatsApp: ya se conoce por el canal.
+- No pidas teléfono cuando el cliente escribe por WhatsApp y el canal trae un número real.
+- Excepción: si WhatsApp entrega un identificador técnico @lid, podés responderle por ese chat, pero NO conocés su teléfono real. Antes de crear un turno, pedile su WhatsApp real para cargar bien el turno, recordatorios y perfil del cliente.
 - Si el cliente escribe por Instagram, antes de crear un turno pedile su número de WhatsApp para poder mandarle el recordatorio 24 hs antes.
 - La característica de Rosario puede aparecer como 341..., 54341... o 549341... . Usala solo como señal interna de duda, NO la menciones al cliente.
 - Si el número real del cliente no parece de Rosario, no digas "tu característica no es de Rosario". Decí natural: "Te recuerdo que el taller está en Rosario, Santa Fe, ¿te queda bien acercarte?".
@@ -96,6 +105,8 @@ function buildChannelRulesPrompt({ channelPhone, businessAddress = '', rosarioLo
 
   if (isIg) {
     prompt += '\n\nCONTEXTO DEL CANAL: Este cliente viene de Instagram. No tenés su WhatsApp real todavía salvo que lo haya escrito en la conversación. No crees turnos sin pedirlo.';
+  } else if (isWhatsAppLid(channelPhone)) {
+    prompt += '\n\nCONTEXTO DEL CANAL: WhatsApp entregó un identificador técnico @lid. Podés conversar por este chat, pero no conocés el número real. Antes de agendar turno, pedí el WhatsApp real del cliente de forma natural para cargar el turno y enviar recordatorios. No menciones @lid ni detalles técnicos.';
   } else if (checkablePrefix && phone && !hasRosarioPrefix && !rosarioLocationConfirmed) {
     prompt += '\n\nCONTEXTO DE UBICACIÓN: Antes de confirmar/agendar turno, recordá de forma natural que el taller está en Rosario y preguntá si le queda bien acercarse. No menciones la característica ni el prefijo del teléfono.';
   } else if (rosarioLocationConfirmed) {

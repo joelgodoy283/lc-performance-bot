@@ -18,26 +18,33 @@ test('reconoce números de Rosario en formatos 341, 54341 y 549341', () => {
   assert.equal(res.ok, true);
 });
 
-test('@lid no se interpreta como característica no-Rosario', () => {
+test('@lid no se interpreta como característica no-Rosario, pero exige teléfono real para agendar', () => {
   const { validateAppointmentChannelRules, appointmentPhone, hasCheckablePhonePrefix } = require('../ai/channel-rules');
   const lid = '23789452342345@lid';
   assert.equal(hasCheckablePhonePrefix(lid), false);
-  assert.equal(appointmentPhone({ channelPhone: lid }), lid);
-  const res = validateAppointmentChannelRules({ channelPhone: lid });
-  assert.equal(res.ok, true);
-  assert.equal(res.phone, lid);
+  assert.equal(appointmentPhone({ channelPhone: lid }), '');
+
+  const blocked = validateAppointmentChannelRules({ channelPhone: lid });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.code, 'missing_real_phone_for_whatsapp_lid');
+
+  const allowed = validateAppointmentChannelRules({ channelPhone: lid, providedPhone: '3417284477' });
+  assert.equal(allowed.ok, true);
+  assert.equal(allowed.phone, '3417284477');
 });
 
-test('los turnos preservan @lid para poder responder por el mismo canal', () => {
+test('si se conoce el teléfono real, el turno guarda ese número y no el @lid', () => {
   const lid = '23789452342345@lid';
+  const realPhone = '3417284477';
   const appt = db.createAppointment({
-    client_phone: lid,
+    client_phone: realPhone,
     client_name: 'Cliente LID',
     car_info: 'Auto prueba',
     date: '2099-01-05',
     time: '09:00',
   });
-  assert.equal(appt.client_phone, lid);
+  assert.equal(appt.client_phone, realPhone);
+  assert.notEqual(appt.client_phone, lid);
 });
 
 
