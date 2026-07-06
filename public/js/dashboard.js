@@ -193,7 +193,7 @@ async function loadChatList() {
 
   list.innerHTML = chats.map(chat => `
     <div class="chat-list-item ${chat.is_paused ? 'paused' : ''} ${chat.phone === currentPhone ? 'active' : ''}"
-         data-phone="${chat.phone}" onclick="openChat('${chat.phone}')">
+         data-phone="${escapeHtml(chat.phone)}" onclick="openChat(this.dataset.phone)">
       <div class="chat-avatar">${chat.phone.startsWith('ig:') ? '📸' : '👤'}</div>
       <div class="chat-list-info">
         <div class="chat-list-phone">${formatPhone(chat.phone)}</div>
@@ -871,6 +871,10 @@ async function apiFetch(url, options = {}) {
 function formatPhone(jid) {
   if (!jid) return '';
   if (jid.startsWith('ig:')) return `📸 IG·${jid.slice(3, -4)}…${jid.slice(-4)}`;
+  if (/@lid$/i.test(jid)) {
+    const id = jid.replace('@lid', '');
+    return `WhatsApp·ID ${id.slice(0, 4)}…${id.slice(-4)}`;
+  }
   const num = jid.replace('@s.whatsapp.net', '').replace('@c.us', '');
   if (num.startsWith('549') && num.length >= 12) {
     return `+54 9 ${num.slice(3,6)} ${num.slice(6,9)}-${num.slice(9)}`;

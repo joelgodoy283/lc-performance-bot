@@ -17,6 +17,12 @@ const local = require('../calendar/local-calendar');
 const TZ = 'America/Argentina/Buenos_Aires';
 const FALLBACK_HOURS = 5;
 
+function recipientJid(contactKey) {
+  const raw = String(contactKey || '').trim();
+  if (/@(s\.whatsapp\.net|c\.us|lid)$/i.test(raw)) return raw;
+  return `${raw}@s.whatsapp.net`;
+}
+
 function googleReviewText(appt, url) {
   return (
     `🙌 ¡Gracias por elegir *LC Performance*${appt.client_name ? ', ' + appt.client_name : ''}! ` +
@@ -60,11 +66,11 @@ async function sendReviewRequests({ force = false } = {}) {
     try {
       const now = new Date().toISOString();
       if (url) {
-        await sendMessage(`${appt.client_phone}@s.whatsapp.net`, googleReviewText(appt, url));
+        await sendMessage(recipientJid(appt.client_phone), googleReviewText(appt, url));
         updateAppointment(appt.id, { review_requested: 1, review_requested_at: now });
       } else {
         // Sin link de Google → vamos directo a la pregunta del 1 al 10.
-        await sendMessage(`${appt.client_phone}@s.whatsapp.net`, ratingText(appt));
+        await sendMessage(recipientJid(appt.client_phone), ratingText(appt));
         updateAppointment(appt.id, { review_requested: 1, review_requested_at: now, review_fallback_sent: 1 });
       }
       sent++;
@@ -90,7 +96,7 @@ async function sendReviewFallbacks({ force = false } = {}) {
   let sent = 0;
   for (const appt of due) {
     try {
-      await sendMessage(`${appt.client_phone}@s.whatsapp.net`, ratingText(appt));
+      await sendMessage(recipientJid(appt.client_phone), ratingText(appt));
       updateAppointment(appt.id, { review_fallback_sent: 1 });
       sent++;
     } catch (err) {

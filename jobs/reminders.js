@@ -12,6 +12,12 @@ const local = require('../calendar/local-calendar');
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
+function recipientJid(contactKey) {
+  const raw = String(contactKey || '').trim();
+  if (/@(s\.whatsapp\.net|c\.us|lid)$/i.test(raw)) return raw;
+  return `${raw}@s.whatsapp.net`;
+}
+
 function prettyDate(dateStr) {
   const d = new Date(`${dateStr}T12:00:00-03:00`);
   return new Intl.DateTimeFormat('es-AR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' }).format(d);
@@ -45,7 +51,7 @@ async function sendReminders({ force = false } = {}) {
   let sent = 0;
   for (const appt of pendientes) {
     try {
-      await sendMessage(`${appt.client_phone}@s.whatsapp.net`, reminderText(appt));
+      await sendMessage(recipientJid(appt.client_phone), reminderText(appt));
       updateAppointment(appt.id, { reminder_sent: 1 });
       sent++;
     } catch (err) {

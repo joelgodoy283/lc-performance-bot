@@ -291,11 +291,28 @@ function saveMessage(phone, direction, content) {
 
 function getMessages(phone, limit = 50) {
   // sql.js no soporta parámetros nombrados fácilmente, usamos valores directos para LIMIT
-  const rows = queryAll(
-    `SELECT * FROM (SELECT * FROM messages WHERE phone = ? ORDER BY rowid DESC LIMIT ${parseInt(limit)}) ORDER BY rowid ASC`,
+  const safeLimit = parseInt(limit, 10) || 50;
+  const exactRows = queryAll(
+    `SELECT * FROM (SELECT * FROM messages WHERE phone = ? ORDER BY id DESC LIMIT ${safeLimit}) ORDER BY id ASC`,
     [phone]
   );
-  return rows;
+  if (exactRows.length) return exactRows;
+
+  // Fallback defensivo para el dashboard: si el frontend manda solo dígitos o
+  // una variante del JID, buscamos por clave equivalente antes de mostrar vacío.
+  const digits = normalizePhone(phone);
+  if (!digits) return [];
+  return queryAll(
+    `SELECT * FROM (
+       SELECT * FROM messages
+       WHERE phone = ?
+          OR phone = ?
+          OR phone = ?
+          OR phone LIKE ?
+       ORDER BY id DESC LIMIT ${safeLimit}
+     ) ORDER BY id ASC`,
+    [digits, `${digits}@s.whatsapp.net`, `${digits}@c.us`, `${digits}@%`]
+  );
 }
 
 function getMessagesSince(isoCutoff) {
@@ -423,7 +440,7 @@ function createAppointment({
     `INSERT INTO appointments
        (client_phone, client_name, car_info, service, date, time, source, google_event_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [normalizePhone(client_phone), client_name, car_info, service, date, time, source, google_event_id]
+    [appointmentContactKey(client_phone), client_name, car_info, service, date, time, source, google_event_id]
   );
   const { id } = queryOne('SELECT last_insert_rowid() AS id');
   saveDB();
@@ -482,7 +499,7 @@ function getActiveAppointmentsByPhone(phone) {
     `SELECT * FROM appointments
        WHERE client_phone = ? AND status IN (${placeholders})
        ORDER BY date ASC, time ASC`,
-    [normalizePhone(phone), ...OCCUPYING_STATUSES]
+    [appointmentContactKey(phone), ...OCCUPYING_STATUSES]
   );
 }
 
@@ -492,7 +509,7 @@ function getPendingReview(phone) {
     `SELECT * FROM appointments
        WHERE client_phone = ? AND review_requested = 1 AND review_done = 0
        ORDER BY id DESC LIMIT 1`,
-    [normalizePhone(phone)]
+    [appointmentContactKey(phone)]
   );
 }
 
@@ -566,6 +583,18 @@ function normalizePhone(jidOrNumber) {
   return String(jidOrNumber).replace(/^ig:/, '').replace(/\D/g, '');
 }
 
+/**
+ * Clave de contacto para turnos/recordatorios.
+ * - Si WhatsApp entrega @lid, NO es teléfono real: se preserva el JID completo.
+ * - Para números/JID clásicos se guardan solo dígitos, como antes.
+ */
+function appointmentContactKey(jidOrNumber) {
+  const raw = String(jidOrNumber || '').trim();
+  if (/@lid$/i.test(raw)) return raw;
+  if (/^ig:/i.test(raw)) return raw;
+  return normalizePhone(raw);
+}
+
 module.exports = {
   DEFAULT_PROMPT,
   initDB, getDB, saveDB,
@@ -580,4 +609,5 @@ module.exports = {
   getPendingReview, getAppointmentsForReview, getReviewFallbackPending,
   updateAppointment,
   normalizePhone,
+  appointmentContactKey,
 };
